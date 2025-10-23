@@ -1,0 +1,58 @@
+# Node.js dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs
+*.log
+logs/*
+debug.log
+error.log
+*.pid
+*.seed
+*.pid.lock
+
+# Build outputs
+dist/
+build/
+coverage/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor & IDE configs
+.vscode/
+.idea/
+*.swp
+
+# System & cache
+.cache/
+.tmp/
+.temp/
+
+# Cloud / credentials (important for Azure, AWS, GCP)
+*.pem
+*.key
+*.crt
+*.csr
+*.pfx
+*.p12
+*.bak
+
+# Firebase / Google / AWS / Azure credentials
+*.json
+serviceAccountKey.json
+*.azureauth
+*.aws/
+.aws/
+
+# Misc
+ordinal-shard-*/ # tu archivo de credenciales o configuración temporal
