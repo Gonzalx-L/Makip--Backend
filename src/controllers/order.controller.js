@@ -1,4 +1,5 @@
 import { query } from "../config/db.js";
+import { uploadToGCS } from "../services/gcs.service.js";
 
 // --- (CLIENTE) CREAR UN NUEVO PEDIDO/COTIZACIÓN ---
 export const createOrder = async (req, res) => {
@@ -82,5 +83,51 @@ export const getMyOrders = async (req, res) => {
   } catch (error) {
     console.error("Error al obtener mis pedidos:", error);
     res.status(500).json({ message: "Error en el servidor" });
+  }
+};
+// --- (CLIENTE) SUBIR COMPROBANTE DE PAGO ---
+export const uploadPaymentProof = async (req, res) => {
+  const { id } = req.params; // El ID del pedido
+  const clientId = req.client.client_id; // El ID del cliente (del middleware)
+
+  try {
+    // 1. Verificar que el archivo exista
+    if (!req.file) {
+      return res.status(400).json({ message: "No se subió ningún archivo." });
+    }
+
+    // 2. Verificar que el pedido pertenezca al cliente
+    const orderResult = await query(
+      "SELECT * FROM orders WHERE order_id = $1 AND client_id = $2",
+      [id, clientId]
+    );
+
+    if (orderResult.rows.length === 0) {
+      return res
+        .status(404)
+        .json({ message: "Pedido no encontrado o no te pertenece" });
+    }
+
+    // 3. Subir el archivo a Google Cloud Storage (en la carpeta 'payment-proofs')
+    const publicUrl = await uploadToGCS(req.file, "payment-proofs");
+
+    // 4. Actualizar la base de datos con la URL y cambiar el estado
+    const updatedOrder = await query(
+      `UPDATE orders 
+       SET payment_proof_url = $1, status = 'PAGO_EN_VERIFICACION' 
+       WHERE order_id = $2 
+       RETURNING order_id, status, payment_proof_url`,
+      [publicUrl, id]
+    );
+
+    res.json({
+      message: "Comprobante subido con éxito. Tu pedido está en verificación.",
+      order: updatedOrder.rows[0],
+    });
+  } catch (error) {
+    console.error("Error al subir el comprobante:", error);
+    res
+      .status(500)
+      .json({ message: "Error en el servidor", error: error.message });
   }
 };
