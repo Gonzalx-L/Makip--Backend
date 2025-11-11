@@ -4,16 +4,6 @@ import express from "express";
 import cors from "cors";
 import "dotenv/config";
 
-// --- Importamos nuestras rutas ---
-import adminRoutes from "./routes/admin.routes.js";
-import clientAuthRoutes from "./routes/client.auth.routes.js";
-import publicRoutes from "./routes/public.routes.js";
-import orderRoutes from "./routes/order.routes.js";
-import categoryRoutes from "./routes/category.routes.js";
-import productRoutes from "./routes/product.routes.js";
-import adminOrderRoutes from "./routes/admin.order.routes.js";
-import uploadRoutes from "./routes/upload.routes.js";
-import adminDashboardRoutes from "./routes/admin.dashboard.routes.js";
 
 // 💡 1. IMPORTA LA RUTA QUE FALTABA
 import adminClientRoutes from "./routes/admin.client.routes.js";
@@ -23,9 +13,29 @@ import { protectAdminRoute } from "./middleware/auth.middleware.js";
 
 const app = express();
 
+// Configuración de CORS más explícita
+const corsOptions = {
+  origin: 'http://localhost:5173',
+  methods: 'GET,POST,PUT,DELETE,PATCH,HEAD', // Métodos permitidos
+  allowedHeaders: ['Content-Type', 'Authorization'], // ¡PERMITE EL HEADER 'Authorization'!
+};
+
 // Middlewares
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
+
+
+
+// --- Importamos nuestras rutas ---
+import adminRoutes from "./routes/admin.routes.js";
+import dashboardRoutes from "./routes/dashboard.routes.js";
+import adminOrderRoutes from "./routes/admin.order.routes.js";
+import clientAuthRoutes from "./routes/client.auth.routes.js";
+import publicRoutes from "./routes/public.routes.js";
+import orderRoutes from "./routes/order.routes.js";
+import categoryRoutes from "./routes/category.routes.js";
+import productRoutes from "./routes/product.routes.js";
+import adminDashboardRoutes from "./routes/admin.dashboard.routes.js";
 
 // --- Rutas Públicas ---
 app.use("/api/v1/admin", adminRoutes); // Login/Registro de Admin
@@ -47,6 +57,7 @@ app.use("/api/v1/upload", uploadRoutes);
 app.use("/api/v1/categories", categoryRoutes);
 app.use("/api/v1/products", productRoutes);
 app.use("/api/v1/admin/orders", adminOrderRoutes);
+app.use("/api/v1/dashboard", dashboardRoutes);
 
 app.get("/api/v1/test-protegido", (req, res) => {
   res.json({
