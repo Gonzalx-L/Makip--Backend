@@ -1,3 +1,5 @@
+// src/app.js
+
 import express from "express";
 import cors from "cors";
 import "dotenv/config";
@@ -11,10 +13,13 @@ import categoryRoutes from "./routes/category.routes.js";
 import productRoutes from "./routes/product.routes.js";
 import adminOrderRoutes from "./routes/admin.order.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
+import adminDashboardRoutes from "./routes/admin.dashboard.routes.js";
+
+// 💡 1. IMPORTA LA RUTA QUE FALTABA
+import adminClientRoutes from "./routes/admin.client.routes.js";
 
 // --- Importamos nuestro guardián ---
 import { protectAdminRoute } from "./middleware/auth.middleware.js";
-import adminDashboardRoutes from "./routes/admin.dashboard.routes.js";
 
 const app = express();
 
@@ -34,6 +39,9 @@ app.use("/api/v1/orders", orderRoutes);
 
 // --- Rutas Protegidas (SOLO ADMINS) ---
 app.use(protectAdminRoute); // ¡El guardián! Todo lo de abajo requiere token.
+
+// 💡 2. AHORA ESTA LÍNEA FUNCIONA
+app.use("/api/v1/admin/clients", adminClientRoutes);
 app.use("/api/v1/admin/dashboard-summary", adminDashboardRoutes);
 app.use("/api/v1/upload", uploadRoutes);
 app.use("/api/v1/categories", categoryRoutes);
@@ -48,5 +56,3 @@ app.get("/api/v1/test-protegido", (req, res) => {
 });
 
 export default app;
-
-//aun falta desplegar en cloud
