@@ -3,6 +3,11 @@ import jwt from "jsonwebtoken";
 import "dotenv/config";
 
 export const protectAdminRoute = (req, res, next) => {
+  // Permitir solicitudes OPTIONS para CORS
+  if (req.method === 'OPTIONS') {
+    return next();
+  }
+
   let token;
   const authHeader = req.headers.authorization; // 1. Revisar que el token exista y tenga el formato "Bearer <token>"
 
