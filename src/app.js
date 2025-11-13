@@ -10,9 +10,11 @@ import orderRoutes from "./routes/order.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import productRoutes from "./routes/product.routes.js";
 import adminOrderRoutes from "./routes/admin.order.routes.js";
+import uploadRoutes from "./routes/upload.routes.js";
 
 // --- Importamos nuestro guardián ---
 import { protectAdminRoute } from "./middleware/auth.middleware.js";
+import adminDashboardRoutes from "./routes/admin.dashboard.routes.js";
 
 const app = express();
 
@@ -32,7 +34,8 @@ app.use("/api/v1/orders", orderRoutes);
 
 // --- Rutas Protegidas (SOLO ADMINS) ---
 app.use(protectAdminRoute); // ¡El guardián! Todo lo de abajo requiere token.
-
+app.use("/api/v1/admin/dashboard-summary", adminDashboardRoutes);
+app.use("/api/v1/upload", uploadRoutes);
 app.use("/api/v1/categories", categoryRoutes);
 app.use("/api/v1/products", productRoutes);
 app.use("/api/v1/admin/orders", adminOrderRoutes);

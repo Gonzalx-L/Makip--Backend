@@ -1,14 +1,14 @@
+// src/controllers/product.controller.js
 import { query } from "../config/db.js";
 
 // --- OBTENER TODOS LOS PRODUCTOS ---
-// (Esta será PÚBLICA después, pero por ahora la protegemos)
 export const getProducts = async (req, res) => {
   try {
-    // Unimos con categorías para obtener el nombre de la categoría
+    // Consulta 100% limpia sin caracteres inválidos
     const result = await query(`
       SELECT p.*, c.name as category_name 
       FROM products p
-      JOIN categories c ON p.category_id = c.category_id
+      LEFT JOIN categories c ON p.category_id = c.category_id
       ORDER BY p.name
     `);
     res.json(result.rows);
@@ -18,6 +18,7 @@ export const getProducts = async (req, res) => {
   }
 };
 
+// --- CREAR UN PRODUCTO ---
 export const createProduct = async (req, res) => {
   const {
     category_id,
@@ -27,9 +28,8 @@ export const createProduct = async (req, res) => {
     min_order_quantity,
     variants,
     personalization_metadata,
+    base_image_url,
   } = req.body;
-
-  const base_image_url = null;
 
   try {
     const result = await query(
@@ -65,16 +65,16 @@ export const updateProduct = async (req, res) => {
     variants,
     personalization_metadata,
     is_active,
+    base_image_url,
   } = req.body;
-
-  // (Aquí también faltaría la lógica de actualizar la imagen)
 
   try {
     const result = await query(
       `UPDATE products SET 
-        category_id = $1, name = $2, description = $3, base_price = $4, 
-        min_order_quantity = $5, variants = $6, personalization_metadata = $7, is_active = $8
-       WHERE product_id = $9 RETURNING *`,
+         category_id = $1, name = $2, description = $3, base_price = $4, 
+         min_order_quantity = $5, variants = $6, personalization_metadata = $7, is_active = $8,
+         base_image_url = $9
+       WHERE product_id = $10 RETURNING *`,
       [
         category_id,
         name,
@@ -84,6 +84,7 @@ export const updateProduct = async (req, res) => {
         variants,
         personalization_metadata,
         is_active,
+        base_image_url,
         id,
       ]
     );
@@ -97,7 +98,7 @@ export const updateProduct = async (req, res) => {
   }
 };
 
-// --- "ELIMINAR" UN PRODUCTO  ---
+// --- "ELIMINAR" UN PRODUCTO (Borrado Lógico) ---
 export const deleteProduct = async (req, res) => {
   const { id } = req.params;
   try {
@@ -111,6 +112,30 @@ export const deleteProduct = async (req, res) => {
     res.json({ message: "Producto desactivado exitosamente" });
   } catch (error) {
     console.error("Error al desactivar producto:", error);
+    res.status(500).json({ message: "Error en el servidor" });
+  }
+};
+
+// --- OBTENER UN PRODUCTO POR ID ---
+export const getProductById = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await query(
+      `
+      SELECT p.*, c.name as category_name
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.category_id
+      WHERE p.product_id = $1
+    `,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Producto no encontrado" });
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Error al obtener producto por ID:", error);
     res.status(500).json({ message: "Error en el servidor" });
   }
 };
