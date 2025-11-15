@@ -1,153 +1,152 @@
+// src/controllers/order.controller.js
 import { query } from "../config/db.js";
-import { generateMockup } from "../services/mockup.service.js"; // <-- FALTABA ESTA IMPORTACIÓN
-import {
-  sendExecutionNotification,
-  sendCompletedNotification,
-} from "../services/whatsapp.service.js";
+import { uploadToGCS } from "../services/gcs.service.js";
+import { detectText } from "../services/ocr.service.js"; // 💡 1. Importamos el OCR
 
-// --- (ADMIN) OBTENER TODOS LOS PEDIDOS ---
-export const getAllOrders = async (req, res) => {
+// --- (CLIENTE) CREAR UN NUEVO PEDIDO/COTIZACIÓN ---
+// (Esta función se queda igual que la tuya)
+export const createOrder = async (req, res) => {
+  const clientId = req.client.client_id;
+  const { items } = req.body;
+  if (!items || items.length === 0) {
+    /* ... */
+  }
+  const client = await query("BEGIN");
   try {
-    // Unimos con la tabla clients para obtener el nombre del cliente
-    const result = await query(`
-      SELECT o.*, c.name as client_name, c.email as client_email
-      FROM orders o
-      JOIN clients c ON o.client_id = c.client_id
-      ORDER BY o.created_at DESC
-    `);
-    res.json(result.rows);
+    let totalPrice = 0;
+    for (const item of items) {
+      totalPrice += item.item_price * item.quantity;
+    }
+    const orderResult = await query(
+      `INSERT INTO orders (client_id, status, total_price) 
+       VALUES ($1, 'NO_PAGADO', $2) RETURNING order_id, created_at, status, total_price`,
+      [clientId, totalPrice]
+    );
+    const newOrder = orderResult.rows[0];
+    for (const item of items) {
+      const { product_id, quantity, item_price, personalization_data } = item;
+      await query(
+        `INSERT INTO order_items (order_id, product_id, quantity, item_price, personalization_data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          newOrder.order_id,
+          product_id,
+          quantity,
+          item_price,
+          personalization_data,
+        ]
+      );
+    }
+    await query("COMMIT");
+    res.status(201).json(newOrder);
   } catch (error) {
-    console.error("Error al obtener todos los pedidos:", error);
-    res.status(500).json({ message: "Error en el servidor" });
+    await query("ROLLBACK");
+    console.error("Error al crear pedido:", error);
+    res
+      .status(500)
+      .json({ message: "Error en el servidor al crear el pedido" });
   }
 };
 
-// --- (ADMIN) OBTENER UN PEDIDO ESPECÍFICO (CON SUS ARTÍCULOS) ---
-export const getOrderById = async (req, res) => {
+// --- (CLIENTE) OBTENER "MIS PEDIDOS" ---
+// (Esta función se queda igual)
+export const getMyOrders = async (req, res) => {
+  /* ... */
+};
+
+// 💡 --- (CLIENTE) SUBIR COMPROBANTE DE PAGO (VERSIÓN CON OCR) ---
+export const uploadPaymentProof = async (req, res) => {
   const { id } = req.params;
+  const clientId = req.client.client_id;
+
   try {
-    // 1. Obtener los detalles del pedido
+    // 1. Verificar que el archivo exista
+    if (!req.file) {
+      return res.status(400).json({ message: "No se subió ningún archivo." });
+    }
+
+    // 2. Verificar que el pedido exista y obtener los datos para validar
+    // 💡 (MODIFICADO: Hacemos JOIN con 'clients' para obtener el nombre)
     const orderResult = await query(
-      `
-      SELECT o.*, c.name as client_name, c.email as client_email
-      FROM orders o
-      JOIN clients c ON o.client_id = c.client_id
-      WHERE o.order_id = $1
-    `,
-      [id]
+      `SELECT o.order_id, o.status, o.total_price, c.name as client_name 
+       FROM orders o
+       JOIN clients c ON o.client_id = c.client_id
+       WHERE o.order_id = $1 AND o.client_id = $2`,
+      [id, clientId]
     );
 
     if (orderResult.rows.length === 0) {
-      return res.status(404).json({ message: "Pedido no encontrado" });
+      return res
+        .status(404)
+        .json({ message: "Pedido no encontrado o no te pertenece" });
     }
 
-    // 2. Obtener los artículos (items) de ese pedido
-    const itemsResult = await query(
-      `
-      SELECT oi.*, p.name as product_name
-      FROM order_items oi
-      JOIN products p ON oi.product_id = p.product_id
-      WHERE oi.order_id = $1
-    `,
-      [id]
-    );
+    const order = orderResult.rows[0];
+    const orderPrice = parseFloat(order.total_price).toFixed(2); // Ej: "25.00"
 
-    const orderDetails = orderResult.rows[0];
-    orderDetails.items = itemsResult.rows; // Añadimos los artículos al objeto del pedido
+    // Normalizamos el nombre del cliente (quitamos tildes, tomamos solo el primero)
+    const clientName = order.client_name
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .split(" ")[0]; // Ej: "gonzalo"
 
-    res.json(orderDetails);
-  } catch (error) {
-    console.error("Error al obtener el detalle del pedido:", error);
-    res.status(500).json({ message: "Error en el servidor" });
-  }
-};
+    // 3. Subir el archivo a Google Cloud Storage
+    const publicUrl = await uploadToGCS(req.file, "payment-proofs");
 
-// --- (ADMIN) CAMBIAR EL ESTADO DE UN PEDIDO ---
-// ¡Este es el "TRIGGER" para la magia!
-export const updateOrderStatus = async (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body; // El admin enviará el nuevo estado (ej: 'EN_EJECUCION')
+    // 4. ¡LA MAGIA! Enviar el buffer de la imagen al servicio OCR
+    console.log(`[OCR]: Leyendo texto del comprobante para Orden #${id}...`);
+    const ocrText = await detectText(req.file.buffer);
 
-  // Validar que el estado sea uno de los permitidos
-  const validStatus = [
-    "PAGO_EN_VERIFICACION",
-    "PENDIENTE",
-    "EN_EJECUCION",
-    "TERMINADO",
-    "CANCELADO",
-  ];
-  if (!status || !validStatus.includes(status)) {
-    return res.status(400).json({ message: "Estado no válido" });
-  }
+    // 5. Validar el texto
+    let isPaymentValid = false;
+    let newStatus = "PAGO_EN_VERIFICACION"; // Estado por defecto si falla
+    let validationMessage = "Comprobante recibido. En verificación.";
 
-  try {
-    const result = await query(
-      "UPDATE orders SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE order_id = $2 RETURNING *",
-      [status, id]
-    );
+    if (ocrText) {
+      // DEBUG: Muestra el texto leído
+      // console.log("[OCR] Texto detectado:", ocrText);
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Pedido no encontrado" });
-    }
+      // Validación simple: ¿El texto incluye el precio Y el nombre?
+      const priceFound = ocrText.includes(orderPrice);
+      const nameFound = ocrText.includes(clientName);
 
-    const updatedOrder = result.rows[0];
-
-    // --- ¡AQUÍ DISPARAMOS LA MAGIA! ---
-    if (updatedOrder.status === "EN_EJECUCION") {
-      console.log(
-        `PEDIDO #${updatedOrder.order_id} EN EJECUCIÓN. Iniciando generación de mockups...`
-      );
-
-      // 1. Buscamos todos los artículos de este pedido
-      const itemsResult = await query(
-        "SELECT * FROM order_items WHERE order_id = $1",
-        [updatedOrder.order_id]
-      );
-
-      // 2. Para cada artículo, intentamos generar un mockup
-      for (const item of itemsResult.rows) {
-        if (item.personalization_data && item.personalization_data.image_url) {
-          // No esperamos a que termine, lo hacemos en segundo plano
-          generateMockup(item)
-            .then((mockupUrl) => {
-              if (mockupUrl) {
-                console.log(
-                  `Mockup para item ${item.order_item_id} listo. Enviando por WhatsApp...`
-                );
-
-                // --- ¡CONEXIÓN FINAL! ---
-                // Enviamos la URL del mockup por WhatsApp
-                sendExecutionNotification(
-                  updatedOrder.client_id,
-                  updatedOrder.order_id,
-                  mockupUrl
-                );
-
-                // (Solo enviamos la primera imagen, así que salimos del bucle)
-                return;
-              }
-            })
-            .catch((err) => {
-              console.error(
-                `Fallo en el proceso de mockup para item ${item.order_item_id}:`,
-                err
-              );
-            });
-          // Salimos del bucle 'for' para enviar solo un mockup por pedido
-          break;
-        }
+      if (priceFound && nameFound) {
+        isPaymentValid = true;
+        newStatus = "PENDIENTE"; // ¡Aprobado!
+        validationMessage = "¡Pago verificado y aprobado automáticamente!";
+        console.log(
+          `[OCR]: ¡Éxito! Orden #${id} aprobada (Monto: ${orderPrice}, Nombre: ${clientName})`
+        );
+      } else {
+        console.warn(
+          `[OCR]: Falló la validación para Orden #${id}. (Monto encontrado: ${priceFound}, Nombre encontrado: ${nameFound})`
+        );
       }
-    } else if (updatedOrder.status === "TERMINADO") {
-      // --- ¡BONUS! Notificación de Pedido Terminado ---
-      console.log(
-        `PEDIDO #${updatedOrder.order_id} TERMINADO. Enviando notificación...`
+    } else {
+      console.warn(
+        `[OCR]: No se detectó texto en el comprobante para Orden #${id}. Pasa a verificación manual.`
       );
-      sendCompletedNotification(updatedOrder.client_id, updatedOrder.order_id);
     }
 
-    res.json(updatedOrder);
+    // 6. Actualizar la base de datos con la URL y el nuevo estado
+    const updatedOrder = await query(
+      `UPDATE orders 
+       SET payment_proof_url = $1, status = $2 
+       WHERE order_id = $3
+       RETURNING order_id, status, payment_proof_url`,
+      [publicUrl, newStatus, id]
+    );
+
+    res.json({
+      message: validationMessage,
+      order: updatedOrder.rows[0],
+      isApproved: isPaymentValid,
+    });
   } catch (error) {
-    console.error("Error al actualizar estado del pedido:", error);
-    res.status(500).json({ message: "Error en el servidor" });
+    console.error("Error al subir el comprobante:", error);
+    res
+      .status(500)
+      .json({ message: "Error en el servidor", error: error.message });
   }
 };
