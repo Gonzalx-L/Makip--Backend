@@ -1,5 +1,4 @@
 // src/app.js
-
 import express from "express";
 import cors from "cors";
 import "dotenv/config";
@@ -16,20 +15,17 @@ import uploadRoutes from "./routes/upload.routes.js";
 import adminDashboardRoutes from "./routes/admin.dashboard.routes.js";
 // import dashboardRoutes from "./routes/dashboard.routes.js"; // 💡 COMENTADO (para evitar crash por Power BI)
 import adminClientRoutes from "./routes/admin.client.routes.js";
-
-// 💡 1. IMPORTA LA RUTA DE REPORTES (la creamos en el paso anterior)
-import adminReportRoutes from "./routes/admin.report.routes.js";
+import adminReportRoutes from "./routes/admin.report.routes.js"; // 💡 (Ahora existe)
 
 // --- Importamos nuestro guardián ---
 import { protectAdminRoute } from "./middleware/auth.middleware.js";
 
 const app = express();
 
-// Configuración de CORS más explícita
 const corsOptions = {
   origin: "http://localhost:5173",
-  methods: "GET,POST,PUT,DELETE,PATCH,HEAD", // Métodos permitidos
-  allowedHeaders: ["Content-Type", "Authorization"], // ¡PERMITE EL HEADER 'Authorization'!
+  methods: "GET,POST,PUT,DELETE,PATCH,HEAD",
+  allowedHeaders: ["Content-Type", "Authorization"],
 };
 
 // Middlewares
@@ -37,17 +33,16 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 // --- Rutas Públicas ---
-app.use("/api/v1/admin", adminRoutes); // Login/Registro de Admin
-app.use("/api/v1/auth", clientAuthRoutes); // Login/Registro de Clientes
-app.use("/api/v1/public", publicRoutes); // Rutas Públicas (categorías y productos)
+app.use("/api/v1/admin", adminRoutes);
+app.use("/api/v1/auth", clientAuthRoutes);
+app.use("/api/v1/public", publicRoutes);
 app.get("/api/v1", (req, res) => res.send("¡API de Makip v1 está viva!"));
 
 // --- Rutas Protegidas para CLIENTES ---
-// (Estas rutas usan su propio guardián interno)
 app.use("/api/v1/orders", orderRoutes);
 
 // --- Rutas Protegidas (SOLO ADMINS) ---
-app.use(protectAdminRoute); // ¡El guardián! Todo lo de abajo requiere token.
+app.use(protectAdminRoute);
 
 app.use("/api/v1/admin/clients", adminClientRoutes);
 app.use("/api/v1/admin/dashboard-summary", adminDashboardRoutes);
@@ -55,10 +50,9 @@ app.use("/api/v1/upload", uploadRoutes);
 app.use("/api/v1/categories", categoryRoutes);
 app.use("/api/v1/products", productRoutes);
 app.use("/api/v1/admin/orders", adminOrderRoutes);
-// app.use("/api/v1/dashboard", dashboardRoutes); // 💡 COMENTADO (para evitar crash por Power BI)
+// app.use("/api/v1/dashboard", dashboardRoutes); // 💡 COMENTADO
 
-// 💡 2. AÑADE LA RUTA DE REPORTES
-app.use("/api/v1/admin/reports", adminReportRoutes);
+app.use("/api/v1/admin/reports", adminReportRoutes); // 💡 (Ahora existe)
 
 app.get("/api/v1/test-protegido", (req, res) => {
   res.json({

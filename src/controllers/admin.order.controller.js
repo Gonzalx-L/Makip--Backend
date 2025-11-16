@@ -6,7 +6,7 @@ import {
   sendCompletedNotification,
 } from "../services/whatsapp.service.js";
 // 💡 1. IMPORTA EL NUEVO SERVICIO PDF
-import { generateOrderPDF } from "../services/pdf.service.js";
+import { generateOrderPDFBuffer } from "../services/pdf.service.js";
 
 // --- (ADMIN) OBTENER TODOS LOS PEDIDOS ---
 export const getAllOrders = async (req, res) => {
