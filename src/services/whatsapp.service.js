@@ -12,6 +12,13 @@ const sendWhatsAppMessage = async (to, data) => {
     );
     return;
   }
+  // 💡 Asegurarse que el número tenga el prefijo de país (ej. 51)
+  if (!to.startsWith("51")) {
+    console.warn(
+      `Número de teléfono (${to}) no tiene prefijo 51. Añadiendo...`
+    );
+    to = `51${to}`;
+  }
 
   try {
     await axios.post(
@@ -38,26 +45,25 @@ const sendWhatsAppMessage = async (to, data) => {
 };
 
 /**
- * Obtiene el número de teléfono de un cliente desde la BD
- * (¡IMPORTANTE! Tu tabla 'clients' necesita una columna 'phone')
+ * 💡 (¡MODIFICADO!) Obtiene el número de teléfono real de un cliente desde la BD
  */
 const getClientPhone = async (clientId) => {
-  // === ¡ACCION REQUERIDA! ===
-  // Esto asume que tienes una columna 'phone' en tu tabla 'clients'.
-  // Si no la tienes, debes añadirla:
-  // ALTER TABLE clients ADD COLUMN phone VARCHAR(20);
-  // Y asegurarte de que el cliente la ingrese al registrarse.
-
-  // Por ahora, vamos a simularlo:
-  // const result = await query('SELECT phone FROM clients WHERE client_id = $1', [clientId]);
-  // if (result.rows.length > 0 && result.rows[0].phone) {
-  //   return result.rows[0].phone;
-  // }
-
-  // *** SIMULACIÓN TEMPORAL ***
-  // Reemplaza esto con la consulta real cuando tengas el campo 'phone'
-  console.warn("Simulando número de teléfono. Implementar consulta a BD.");
-  return "51999888777"; // <-- REEMPLAZAR CON TU NÚMERO DE PRUEBA
+  try {
+    const result = await query(
+      "SELECT phone FROM clients WHERE client_id = $1",
+      [clientId]
+    );
+    if (result.rows.length > 0 && result.rows[0].phone) {
+      return result.rows[0].phone.replace(/[^0-9]/g, ""); // Limpia el número
+    }
+    console.warn(
+      `[WhatsApp] No se encontró teléfono para el client_id: ${clientId}`
+    );
+    return null;
+  } catch (error) {
+    console.error("Error al obtener teléfono del cliente:", error);
+    return null;
+  }
 };
 
 /**
@@ -88,7 +94,6 @@ export const sendExecutionNotification = async (
       ],
     },
   };
-
   await sendWhatsAppMessage(clientPhone, messageData);
 };
 
@@ -112,6 +117,42 @@ export const sendCompletedNotification = async (clientId, orderId) => {
       ],
     },
   };
+  await sendWhatsAppMessage(clientPhone, messageData);
+};
 
+// 💡 --- ¡NUEVA FUNCIÓN! ---
+/**
+ * Envía la Factura/PDF del pedido cuando el pago es aprobado
+ */
+export const sendInvoiceNotification = async (clientId, orderId, pdfUrl) => {
+  const clientPhone = await getClientPhone(clientId);
+  if (!clientPhone) return;
+
+  const messageData = {
+    type: "template",
+    template: {
+      // 💡 (Debes crear esta plantilla en Meta)
+      name: "order_payment_confirmed",
+      language: { code: "es_MX" },
+      components: [
+        {
+          type: "header",
+          parameters: [
+            {
+              type: "document",
+              document: {
+                link: pdfUrl,
+                filename: `Pedido_${orderId}.pdf`,
+              },
+            },
+          ],
+        },
+        {
+          type: "body",
+          parameters: [{ type: "text", text: `${orderId}` }],
+        },
+      ],
+    },
+  };
   await sendWhatsAppMessage(clientPhone, messageData);
 };

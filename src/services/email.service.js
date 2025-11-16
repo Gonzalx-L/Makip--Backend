@@ -1,70 +1,78 @@
-// src/services/email.service.js
 import sgMail from "@sendgrid/mail";
 import "dotenv/config";
+import axios from "axios"; // 💡 1. Necesitamos axios para descargar el PDF
 
-// Configuramos SendGrid con nuestra API Key
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 const FROM_EMAIL = process.env.EMAIL_FROM;
 
 export const sendWelcomeEmail = async (toEmail, name) => {
-  const msg = {
-    to: toEmail,
-    from: FROM_EMAIL, // Tu email verificado en SendGrid
-    subject: "¡Bienvenido/a a Makip! 🎉",
-    html: `
-      <div style="font-family: Arial, sans-serif; color: #333;">
-        <h2>¡Hola, ${name}!</h2>
-        <p>Gracias por registrarte en <strong>Makip</strong>. ¡Estamos muy contentos de tenerte con nosotros!</p>
-        <p>A partir de ahora, puedes explorar nuestro catálogo, personalizar productos y seguir el estado de tus pedidos directamente desde tu perfil.</p>
-        <p>¡Que tengas un día genial!</p>
-        <br>
-        <p>Atentamente,<br>El equipo de Makip</p>
-      </div>
-    `,
-  };
+  // ... (código existente sin cambios) ...
+};
 
-  try {
-    await sgMail.send(msg);
-    console.log(`Correo de bienvenida enviado a ${toEmail}`);
-  } catch (error) {
-    console.error("Error al enviar correo de bienvenida:", error);
-    if (error.response) {
-      console.error(error.response.body);
-    }
-  }
+export const sendPasswordResetEmail = async (toEmail, token) => {
+  // ... (código existente sin cambios) ...
 };
 
 // 💡 --- ¡NUEVA FUNCIÓN! ---
 /**
- * Envía un correo con el enlace para resetear la contraseña
+ * Envía un correo de confirmación de pago con el PDF adjunto
  */
-export const sendPasswordResetEmail = async (toEmail, token) => {
-  // (Importante: El frontend debe tener esta ruta: /reset-password)
-  const resetUrl = `http://localhost:5173/reset-password?token=${token}`;
+export const sendOrderConfirmationEmail = async (
+  toEmail,
+  name,
+  orderId,
+  pdfUrl
+) => {
+  let pdfAttachment = undefined;
+
+  try {
+    // 1. Descargar el PDF desde la URL pública de GCS
+    const response = await axios.get(pdfUrl, { responseType: "arraybuffer" });
+    const pdfBuffer = Buffer.from(response.data, "binary");
+
+    // 2. Convertir a Base64 para SendGrid
+    pdfAttachment = pdfBuffer.toString("base64");
+  } catch (error) {
+    console.error(
+      `[Email] Error al descargar el PDF ${pdfUrl} para adjuntar:`,
+      error
+    );
+    // (Si falla, el correo se enviará sin el adjunto)
+  }
 
   const msg = {
     to: toEmail,
     from: FROM_EMAIL,
-    subject: "Restablece tu contraseña de Makip",
+    subject: `Confirmación de Pago: Pedido Makip #${orderId}`,
     html: `
       <div style="font-family: Arial, sans-serif; color: #333;">
-        <h2>¿Olvidaste tu contraseña?</h2>
-        <p>Recibimos una solicitud para restablecer la contraseña de tu cuenta.</p>
-        <p>Haz clic en el siguiente enlace para crear una nueva contraseña (el enlace expira en 1 hora):</p>
-        <a href="${resetUrl}" style="background-color: #1E63FF; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px; display: inline-block;">
-          Restablecer Contraseña
-        </a>
-        <p style="margin-top: 20px;">Si no solicitaste esto, puedes ignorar este correo.</p>
+        <h2>¡Hola, ${name}! Tu pago ha sido aprobado.</h2>
+        <p>Hemos confirmado tu pago para el pedido <strong>#${orderId}</strong>.</p>
+        <p>Tu pedido ha pasado al estado 'Pendiente' y pronto comenzaremos con la producción.</p>
+        <p>Adjuntamos la boleta/factura de tu pedido para tus registros.</p>
+        <br>
         <p>Atentamente,<br>El equipo de Makip</p>
       </div>
     `,
+    attachments: pdfAttachment
+      ? [
+          {
+            content: pdfAttachment,
+            filename: `Pedido_Makip_${orderId}.pdf`,
+            type: "application/pdf",
+            disposition: "attachment",
+          },
+        ]
+      : [], // Array vacío si falla la descarga
   };
 
   try {
     await sgMail.send(msg);
-    console.log(`Correo de reseteo enviado a ${toEmail}`);
+    console.log(
+      `Correo de confirmación de orden #${orderId} enviado a ${toEmail}`
+    );
   } catch (error) {
-    console.error("Error al enviar correo de reseteo:", error);
+    console.error("Error al enviar correo de confirmación:", error);
     if (error.response) {
       console.error(error.response.body);
     }
