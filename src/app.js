@@ -25,7 +25,6 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 
-
 // --- Importamos nuestras rutas ---
 import adminRoutes from "./routes/admin.routes.js";
 import dashboardRoutes from "./routes/dashboard.routes.js";
@@ -36,6 +35,7 @@ import orderRoutes from "./routes/order.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import productRoutes from "./routes/product.routes.js";
 import adminDashboardRoutes from "./routes/admin.dashboard.routes.js";
+import uploadRoutes from "./routes/upload.routes.js";
 
 // --- Rutas Públicas ---
 app.use("/api/v1/admin", adminRoutes); // Login/Registro de Admin
