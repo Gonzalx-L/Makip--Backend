@@ -1,39 +1,25 @@
+// src/controllers/order.controller.js
 import { query } from "../config/db.js";
 import { uploadToGCS } from "../services/gcs.service.js";
+import { detectText } from "../services/ocr.service.js"; // 💡 Importamos el OCR
 
 // --- (CLIENTE) CREAR UN NUEVO PEDIDO/COTIZACIÓN ---
 export const createOrder = async (req, res) => {
-  // El ID del cliente lo obtenemos del middleware 'protectClientRoute'
   const clientId = req.client.client_id;
-  const { items } = req.body; // El frontend nos envía un array de 'items'
-
+  const { items } = req.body;
   if (!items || items.length === 0) {
     return res
       .status(400)
       .json({ message: "El pedido debe tener al menos un artículo" });
   }
 
-  // Usamos una transacción para asegurar que todo se grabe o nada se grabe
-  const client = await query("BEGIN"); // Inicia la transacción
-
+  const clientDB = await query("BEGIN");
   try {
-    // --- Lógica del Flujo de Cotización ---
-    // Según nuestro plan, si un item es personalizado,
-    // el pedido inicia como "COTIZACION_PENDIENTE" (que podemos llamar 'NO_PAGADO')
-    // y con precio 0. El admin luego lo actualiza.
-
-    // Aquí simplificaremos: El frontend nos manda el precio calculado.
-    // (Luego podemos implementar la cotización)
-
-    // 1. Calcular el precio total (simplificado)
-    // En un futuro, esta lógica debe ser más robusta en el backend
     let totalPrice = 0;
     for (const item of items) {
-      // (Aquí deberíamos validar el precio contra la BD)
       totalPrice += item.item_price * item.quantity;
     }
 
-    // 2. Crear el registro en la tabla 'orders'
     const orderResult = await query(
       `INSERT INTO orders (client_id, status, total_price) 
        VALUES ($1, 'NO_PAGADO', $2) RETURNING order_id, created_at, status, total_price`,
@@ -41,7 +27,6 @@ export const createOrder = async (req, res) => {
     );
     const newOrder = orderResult.rows[0];
 
-    // 3. Insertar cada artículo en 'order_items'
     for (const item of items) {
       const { product_id, quantity, item_price, personalization_data } = item;
       await query(
@@ -53,16 +38,12 @@ export const createOrder = async (req, res) => {
           quantity,
           item_price,
           personalization_data,
-        ] // personalization_data es JSON
+        ]
       );
     }
-
-    // 4. Si todo salió bien, confirmar la transacción
     await query("COMMIT");
-
     res.status(201).json(newOrder);
   } catch (error) {
-    // 5. Si algo falló, deshacer todo
     await query("ROLLBACK");
     console.error("Error al crear pedido:", error);
     res
@@ -85,10 +66,11 @@ export const getMyOrders = async (req, res) => {
     res.status(500).json({ message: "Error en el servidor" });
   }
 };
-// --- (CLIENTE) SUBIR COMPROBANTE DE PAGO ---
+
+// 💡 --- (CLIENTE) SUBIR COMPROBANTE DE PAGO (VERSIÓN CON OCR) ---
 export const uploadPaymentProof = async (req, res) => {
-  const { id } = req.params; // El ID del pedido
-  const clientId = req.client.client_id; // El ID del cliente (del middleware)
+  const { id } = req.params;
+  const clientId = req.client.client_id;
 
   try {
     // 1. Verificar que el archivo exista
@@ -96,9 +78,12 @@ export const uploadPaymentProof = async (req, res) => {
       return res.status(400).json({ message: "No se subió ningún archivo." });
     }
 
-    // 2. Verificar que el pedido pertenezca al cliente
+    // 2. Verificar que el pedido exista y obtener los datos para validar
     const orderResult = await query(
-      "SELECT * FROM orders WHERE order_id = $1 AND client_id = $2",
+      `SELECT o.order_id, o.status, o.total_price, c.name as client_name 
+       FROM orders o
+       JOIN clients c ON o.client_id = c.client_id
+       WHERE o.order_id = $1 AND o.client_id = $2`,
       [id, clientId]
     );
 
@@ -108,21 +93,68 @@ export const uploadPaymentProof = async (req, res) => {
         .json({ message: "Pedido no encontrado o no te pertenece" });
     }
 
-    // 3. Subir el archivo a Google Cloud Storage (en la carpeta 'payment-proofs')
+    const order = orderResult.rows[0];
+    const orderPrice = parseFloat(order.total_price).toFixed(2);
+    const clientName = order.client_name
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .split(" ")[0];
+
+    // 3. Subir el archivo a Google Cloud Storage
     const publicUrl = await uploadToGCS(req.file, "payment-proofs");
 
-    // 4. Actualizar la base de datos con la URL y cambiar el estado
+    // 4. ¡LA MAGIA! Enviar el buffer de la imagen al servicio OCR
+    console.log(`[OCR]: Leyendo texto del comprobante para Orden #${id}...`);
+    const ocrText = await detectText(req.file.buffer);
+
+    // 5. Validar el texto
+    let isPaymentValid = false;
+    let newStatus = "PAGO_EN_VERIFICACION"; // Estado por defecto si falla
+    let validationMessage = "Comprobante recibido. En verificación.";
+
+    if (ocrText) {
+      // console.log(`[OCR] Texto detectado para Orden #${id}:`, ocrText); // DEBUG
+
+      const priceFound = ocrText.includes(orderPrice.split(".")[0]);
+      const nameFound = ocrText.includes(clientName);
+
+      if (priceFound && nameFound) {
+        isPaymentValid = true;
+        newStatus = "PENDIENTE"; // ¡Aprobado!
+        validationMessage = "¡Pago verificado y aprobado automáticamente!";
+        console.log(
+          `[OCR]: ¡Éxito! Orden #${id} aprobada (Monto: ${orderPrice}, Nombre: ${clientName})`
+        );
+      } else {
+        console.warn(
+          `[OCR]: Falló la validación para Orden #${id}. (Monto encontrado: ${priceFound}, Nombre encontrado: ${nameFound})`
+        );
+        console.warn(
+          `[OCR]: Buscando Monto: "${
+            orderPrice.split(".")[0]
+          }" y Nombre: "${clientName}"`
+        );
+      }
+    } else {
+      console.warn(
+        `[OCR]: No se detectó texto en el comprobante para Orden #${id}. Pasa a verificación manual.`
+      );
+    }
+
+    // 6. Actualizar la base de datos con la URL y el nuevo estado
     const updatedOrder = await query(
       `UPDATE orders 
-       SET payment_proof_url = $1, status = 'PAGO_EN_VERIFICACION' 
-       WHERE order_id = $2 
+       SET payment_proof_url = $1, status = $2, updated_at = CURRENT_TIMESTAMP
+       WHERE order_id = $3
        RETURNING order_id, status, payment_proof_url`,
-      [publicUrl, id]
+      [publicUrl, newStatus, id]
     );
 
     res.json({
-      message: "Comprobante subido con éxito. Tu pedido está en verificación.",
+      message: validationMessage,
       order: updatedOrder.rows[0],
+      isApproved: isPaymentValid,
     });
   } catch (error) {
     console.error("Error al subir el comprobante:", error);
