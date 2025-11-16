@@ -14,10 +14,11 @@ import productRoutes from "./routes/product.routes.js";
 import adminOrderRoutes from "./routes/admin.order.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
 import adminDashboardRoutes from "./routes/admin.dashboard.routes.js";
-import dashboardRoutes from "./routes/dashboard.routes.js";
-
-// 💡 1. IMPORTA LA RUTA QUE FALTABA
+// import dashboardRoutes from "./routes/dashboard.routes.js"; // 💡 COMENTADO (para evitar crash por Power BI)
 import adminClientRoutes from "./routes/admin.client.routes.js";
+
+// 💡 1. IMPORTA LA RUTA DE REPORTES (la creamos en el paso anterior)
+import adminReportRoutes from "./routes/admin.report.routes.js";
 
 // --- Importamos nuestro guardián ---
 import { protectAdminRoute } from "./middleware/auth.middleware.js";
@@ -26,9 +27,9 @@ const app = express();
 
 // Configuración de CORS más explícita
 const corsOptions = {
-  origin: 'http://localhost:5173',
-  methods: 'GET,POST,PUT,DELETE,PATCH,HEAD', // Métodos permitidos
-  allowedHeaders: ['Content-Type', 'Authorization'], // ¡PERMITE EL HEADER 'Authorization'!
+  origin: "http://localhost:5173",
+  methods: "GET,POST,PUT,DELETE,PATCH,HEAD", // Métodos permitidos
+  allowedHeaders: ["Content-Type", "Authorization"], // ¡PERMITE EL HEADER 'Authorization'!
 };
 
 // Middlewares
@@ -48,14 +49,16 @@ app.use("/api/v1/orders", orderRoutes);
 // --- Rutas Protegidas (SOLO ADMINS) ---
 app.use(protectAdminRoute); // ¡El guardián! Todo lo de abajo requiere token.
 
-// 💡 2. AHORA ESTA LÍNEA FUNCIONA
 app.use("/api/v1/admin/clients", adminClientRoutes);
 app.use("/api/v1/admin/dashboard-summary", adminDashboardRoutes);
 app.use("/api/v1/upload", uploadRoutes);
 app.use("/api/v1/categories", categoryRoutes);
 app.use("/api/v1/products", productRoutes);
 app.use("/api/v1/admin/orders", adminOrderRoutes);
-app.use("/api/v1/dashboard", dashboardRoutes);
+// app.use("/api/v1/dashboard", dashboardRoutes); // 💡 COMENTADO (para evitar crash por Power BI)
+
+// 💡 2. AÑADE LA RUTA DE REPORTES
+app.use("/api/v1/admin/reports", adminReportRoutes);
 
 app.get("/api/v1/test-protegido", (req, res) => {
   res.json({
