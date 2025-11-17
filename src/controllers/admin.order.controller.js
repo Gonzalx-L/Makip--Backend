@@ -5,9 +5,8 @@ import {
   sendExecutionNotification,
   sendCompletedNotification,
 } from "../services/whatsapp.service.js";
-
-// 💡 1. IMPORTA LA FUNCIÓN CORRECTA (YA NO generateOrderPDFBuffer)
-import { pipePDFToResponse } from "../services/pdf.service.js";
+// 💡 1. IMPORTA EL NUEVO SERVICIO PDF
+import { generateOrderPDFBuffer } from "../services/pdf.service.js";
 
 // --- (ADMIN) OBTENER TODOS LOS PEDIDOS ---
 export const getAllOrders = async (req, res) => {
@@ -24,7 +23,7 @@ export const updateOrderStatus = async (req, res) => {
   // ... (código existente sin cambios) ...
 };
 
-// 💡 --- (CORREGIDA) DESCARGAR ORDEN EN PDF ---
+// 💡 --- (NUEVA) DESCARGAR ORDEN EN PDF ---
 export const downloadOrderPDF = async (req, res) => {
   const { id } = req.params;
   try {
@@ -64,9 +63,8 @@ export const downloadOrderPDF = async (req, res) => {
       `attachment; filename=orden_makip_${id}.pdf`
     );
 
-    // 4. Llamar al servicio de PDF (¡CORREGIDO!)
-    //    En lugar de "generateOrderPDF(...)"
-    pipePDFToResponse(orderDetails, res);
+    // 4. Llamar al servicio de PDF
+    generateOrderPDF(orderDetails, res);
   } catch (error) {
     console.error("Error al generar PDF del pedido:", error);
     res.status(500).json({ message: "Error en el servidor" });

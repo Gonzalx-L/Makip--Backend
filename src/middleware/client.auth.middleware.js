@@ -1,11 +1,8 @@
-// src/middleware/client.auth.middleware.js
-// 💡 ¡VERSIÓN CORREGIDA!
-
-import jwt from "jsonwebtoken";
-import "dotenv/config";
+import { OAuth2Client } from "google-auth-library";
 import { query } from "../config/db.js";
+import "dotenv/config";
 
-const JWT_SECRET = process.env.JWT_SECRET;
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 export const protectClientRoute = async (req, res, next) => {
   let token;
@@ -13,33 +10,26 @@ export const protectClientRoute = async (req, res, next) => {
 
   if (authHeader && authHeader.startsWith("Bearer ")) {
     try {
-      // 1. Obtener el token LOCAL
-      token = authHeader.split(" ")[1];
+      token = authHeader.split(" ")[1]; // Sacamos el token de Google
 
-      // 2. Verificar el token LOCAL (rápido y sin red)
-      // @ts-ignore
-      const decoded = jwt.verify(token, JWT_SECRET);
+      // 1. Verificar el token con Google
+      const ticket = await client.verifyIdToken({
+        idToken: token,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+      const payload = ticket.getPayload();
+      const google_uid = payload.sub;
 
-      // 3. Obtener el ID del cliente desde el payload del token
-      // @ts-ignore
-      const clientId = decoded.client_id;
-
-      if (!clientId) {
-        return res
-          .status(401)
-          .json({ message: "Token inválido (payload incorrecto)" });
-      }
-
-      // 4. (Opcional pero recomendado) Verificar que el cliente aún exista
-      const result = await query("SELECT * FROM clients WHERE client_id = $1", [
-        clientId,
-      ]);
-
+      // 2. Buscar al cliente en NUESTRA base de datos
+      const result = await query(
+        "SELECT * FROM clients WHERE google_uid = $1",
+        [google_uid]
+      );
       if (result.rows.length === 0) {
-        return res.status(401).json({ message: "Cliente no encontrado" });
+        return res.status(401).json({ message: "Cliente no registrado" });
       }
 
-      // 5. Adjuntar el cliente al request
+      // 3. ¡Todo bien! Adjuntamos el cliente al request
       req.client = result.rows[0];
       next();
     } catch (error) {

@@ -1,3 +1,4 @@
+// src/controllers/admin.report.controller.js
 import { query } from "../config/db.js";
 
 // --- (ADMIN) OBTENER REPORTE DE VENTAS FILTRADO ---
@@ -19,12 +20,7 @@ export const getSalesReport = async (req, res) => {
     const params = [];
     if (clientName) {
       params.push(`%${clientName}%`);
-      // 💡 MODIFICADO:
-      // Ahora busca por nombre del cliente O por el ID de la orden (convertido a texto)
-      sqlQuery += ` AND (
-        c.name ILIKE $${params.length} 
-        OR o.order_id::text ILIKE $${params.length}
-      )`;
+      sqlQuery += ` AND c.name ILIKE $${params.length}`;
     }
     if (startDate) {
       params.push(startDate);
