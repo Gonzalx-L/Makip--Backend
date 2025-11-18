@@ -13,6 +13,12 @@ import { protectAdminRoute } from "./middleware/auth.middleware.js";
 
 const app = express();
 
+// Configuración de CORS
+const corsOptions = {
+  origin: process.env.CORS_ORIGIN || "*",
+  credentials: true,
+};
+
 // Middlewares
 app.use(cors(corsOptions));
 app.use(express.json());
