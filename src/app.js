@@ -50,6 +50,7 @@ app.use(protectAdminRoute);
 
 app.use("/api/v1/admin/clients", adminClientRoutes);
 app.use("/api/v1/admin/dashboard-summary", adminDashboardRoutes);
+app.use("/api/v1/admin/reports", adminReportRoutes);
 app.use("/api/v1/upload", uploadRoutes);
 app.use("/api/v1/categories", categoryRoutes);
 app.use("/api/v1/products", productRoutes);
