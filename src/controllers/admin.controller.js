@@ -1,14 +1,33 @@
+// src/controllers/admin.controller.js
 import { query } from "../config/db.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import "dotenv/config";
 
+const JWT_SECRET = process.env.JWT_SECRET;
+
 // --- REGISTRAR UN NUEVO ADMIN ---
-// (Esto solo lo correrás una vez para crear tu propio usuario)
+// (Esto solo lo usarás tú para crear admins)
 export const registerAdmin = async (req, res) => {
   const { email, password } = req.body;
 
+  if (!email || !password) {
+    return res
+      .status(400)
+      .json({ message: "Email y contraseña son requeridos." });
+  }
+
   try {
+    // Verificar si ya existe
+    const existing = await query("SELECT * FROM admins WHERE email = $1", [
+      email,
+    ]);
+    if (existing.rows.length > 0) {
+      return res
+        .status(409)
+        .json({ message: "Ya existe un administrador con ese email." });
+    }
+
     // 1. Encriptar la contraseña
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
@@ -33,6 +52,12 @@ export const registerAdmin = async (req, res) => {
 export const loginAdmin = async (req, res) => {
   const { email, password } = req.body;
 
+  if (!email || !password) {
+    return res
+      .status(400)
+      .json({ message: "Email y contraseña son requeridos." });
+  }
+
   try {
     // 1. Buscar al admin por email
     const result = await query("SELECT * FROM admins WHERE email = $1", [
@@ -56,18 +81,22 @@ export const loginAdmin = async (req, res) => {
 
     // 3. Crear el Token de Seguridad (JWT)
     const payload = {
-      adminId: admin.admin_id,
+      admin_id: admin.admin_id,
       email: admin.email,
     };
 
-    const token = jwt.sign(payload, process.env.JWT_SECRET, {
+    const token = jwt.sign(payload, JWT_SECRET, {
       expiresIn: "1d", // El token expira en 1 día
     });
 
     // 4. Enviar el token al cliente
     res.json({
       message: "Login exitoso",
-      token: token,
+      token,
+      admin: {
+        admin_id: admin.admin_id,
+        email: admin.email,
+      },
     });
   } catch (error) {
     console.error("Error en login de admin:", error);
