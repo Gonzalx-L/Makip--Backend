@@ -8,15 +8,12 @@ const { META_API_TOKEN, META_PHONE_NUMBER_ID } = process.env;
 const sendWhatsAppMessage = async (to, data) => {
   if (!META_API_TOKEN || !META_PHONE_NUMBER_ID) {
     console.warn(
-      "Faltan variables de entorno de WhatsApp. Mensaje no enviado."
+      "[WhatsApp] ⚠️ Servicio deshabilitado: Token de WhatsApp expirado. Por favor renueva el token en Meta Business."
     );
     return;
   }
   // 💡 Asegurarse que el número tenga el prefijo de país (ej. 51)
   if (!to.startsWith("51")) {
-    console.warn(
-      `Número de teléfono (${to}) no tiene prefijo 51. Añadiendo...`
-    );
     to = `51${to}`;
   }
 
@@ -35,12 +32,24 @@ const sendWhatsAppMessage = async (to, data) => {
         },
       }
     );
-    console.log(`Mensaje de WhatsApp enviado a ${to}`);
+    console.log(`[WhatsApp] ✅ Mensaje enviado a ${to}`);
   } catch (error) {
-    console.error(
-      `Error al enviar WhatsApp a ${to}:`,
-      error.response?.data || error.message
-    );
+    const errorData = error.response?.data;
+    
+    // Si el token está expirado, mostrar mensaje claro
+    if (errorData?.error?.code === 190 || errorData?.error?.error_subcode === 463) {
+      console.warn(
+        `[WhatsApp] ⚠️ TOKEN EXPIRADO - El token de WhatsApp ha caducado (${errorData.error.message})`
+      );
+      console.warn(
+        `[WhatsApp] ℹ️ Para renovar: Ve a Meta Business Suite > Configuración > API de WhatsApp > Generar nuevo token`
+      );
+    } else {
+      console.error(
+        `[WhatsApp] ❌ Error al enviar mensaje a ${to}:`,
+        errorData || error.message
+      );
+    }
   }
 };
 
