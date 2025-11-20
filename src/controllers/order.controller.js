@@ -17,28 +17,50 @@ const generatePickupCode = () => {
   return `REC-${randomStr}`;
 };
 
-// --- (CLIENTE) CREAR UN NUEVO PEDIDO/COTIZACIÓN ---
+/* ============================================================
+   🔎 UTILIDADES OCR (MEJORADAS)
+============================================================ */
+
+function montoPresenteEnOCR(monto, ocrText) {
+  if (!ocrText) return false;
+
+  const text = ocrText.replace(/\s+/g, '').replace(/[,]/g, '').replace(/[.]/g, '');
+
+  const variantes = [
+    monto.toFixed(2),         // 35.00
+    monto.toFixed(1),         // 35.0
+    String(parseInt(monto)),  // 35
+  ];
+
+  return variantes.some(v => text.includes(v.replace(/[,\.]/g, "")));
+}
+
+function extraerCodigoOperacion(ocrText) {
+  if (!ocrText) return null;
+  const match = ocrText.match(/\b\d{8,12}\b/);
+  return match ? match[0] : null;
+}
+
+/* ============================================================
+   (CLIENTE) CREAR PEDIDO
+============================================================ */
 export const createOrder = async (req, res) => {
   const clientId = req.client.client_id;
-  // 1. Ahora esperamos 'delivery_type' del frontend
-  const { items, delivery_type } = req.body;
+  const { items, delivery_type } = req.body; // 🔧 FUSIÓN: Agregar delivery_type del frontend
 
   if (!items || items.length === 0) {
     return res.status(400).json({ message: "El pedido debe tener al menos un artículo" });
   }
 
-  // 2. Validamos el tipo de entrega (por seguridad, default es DELIVERY)
+  // 🔧 FUSIÓN: Validamos el tipo de entrega (por seguridad, default es DELIVERY)
   const validTypes = ['DELIVERY', 'PICKUP'];
   const finalDeliveryType = validTypes.includes(delivery_type) ? delivery_type : 'DELIVERY';
 
-  const clientDB = await query("BEGIN");
+  await query("BEGIN");
   try {
-    let totalPrice = 0;
-    for (const item of items) {
-      totalPrice += item.item_price * item.quantity;
-    }
+    let totalPrice = items.reduce((sum, item) => sum + item.item_price * item.quantity, 0);
 
-    // 3. Lógica de Estado y Código según el método
+    // 🔧 FUSIÓN: Lógica de Estado y Código según el método
     let initialStatus = 'NO_PAGADO'; // Default para envío
     let pickupCode = null;
 
@@ -48,13 +70,29 @@ export const createOrder = async (req, res) => {
       pickupCode = generatePickupCode(); // Generamos el código único
     }
 
-    // 4. Insertamos en la BD con las nuevas columnas
-    const orderResult = await query(
-      `INSERT INTO orders (client_id, status, total_price, delivery_type, pickup_code) 
-       VALUES ($1, $2, $3, $4, $5) 
-       RETURNING order_id, created_at, status, total_price, delivery_type, pickup_code`,
-      [clientId, initialStatus, totalPrice, finalDeliveryType, pickupCode]
-    );
+    // 🔧 FUSIÓN: Insertamos en la BD - compatible con v1.5 (delivery_type, pickup_code)
+    let orderResult;
+    try {
+      // Intentamos primero con el esquema v1.5 (con las nuevas columnas)
+      orderResult = await query(
+        `INSERT INTO orders (client_id, status, total_price, delivery_type, pickup_code) 
+         VALUES ($1, $2, $3, $4, $5) 
+         RETURNING order_id, created_at, status, total_price, delivery_type, pickup_code`,
+        [clientId, initialStatus, totalPrice, finalDeliveryType, pickupCode]
+      );
+    } catch (columnError) {
+      // Si falla, usamos el esquema anterior (sin las nuevas columnas)
+      console.warn("⚠️  BD no tiene columnas v1.5, usando esquema anterior:", columnError.message);
+      orderResult = await query(
+        `INSERT INTO orders (client_id, status, total_price) 
+         VALUES ($1, $2, $3) 
+         RETURNING order_id, created_at, status, total_price`,
+        [clientId, initialStatus, totalPrice]
+      );
+      // Agregamos manualmente los campos faltantes para compatibilidad
+      orderResult.rows[0].delivery_type = finalDeliveryType;
+      orderResult.rows[0].pickup_code = pickupCode;
+    }
     const newOrder = orderResult.rows[0];
 
     for (const item of items) {
@@ -66,12 +104,10 @@ export const createOrder = async (req, res) => {
       );
     }
 
-
     await query("COMMIT");
 
-    // 5. Devolvemos el pedido creado (incluyendo el pickup_code si existe)
+    // 🔧 FUSIÓN: Devolvemos el pedido creado (incluyendo el pickup_code si existe)
     res.status(201).json(newOrder);
-    
   } catch (error) {
     await query("ROLLBACK");
     console.error("Error al crear pedido:", error);
@@ -100,7 +136,6 @@ export const getMyOrders = async (req, res) => {
   }
 };
 
-// ... (Mantén el resto de funciones: uploadPaymentProof, generateAndSendInvoice tal como estaban) ...
 // --- (CLIENTE) SUBIR COMPROBANTE DE PAGO (VERSIÓN CON OCR) ---
 export const uploadPaymentProof = async (req, res) => {
   const { id } = req.params;
