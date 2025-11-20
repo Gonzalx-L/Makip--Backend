@@ -3,7 +3,11 @@ import { query } from "../config/db.js";
 import { uploadToGCS } from "../services/gcs.service.js";
 import { detectText } from "../services/ocr.service.js";
 import { generateOrderPDFBuffer } from "../services/pdf.service.js";
-import { sendOrderConfirmationEmail } from "../services/email.service.js";
+import {
+  sendOrderConfirmationEmail,
+  sendOrderInProductionEmail,
+  sendOrderCompletedEmail,
+} from "../services/email.service.js";
 import { sendInvoiceNotification } from "../services/whatsapp.service.js";
 
 // --- (CLIENTE) CREAR UN NUEVO PEDIDO/COTIZACIÓN ---
@@ -16,7 +20,7 @@ export const createOrder = async (req, res) => {
       .json({ message: "El pedido debe tener al menos un artículo" });
   }
 
-  const clientDB = await query("BEGIN");
+  await query("BEGIN");
   try {
     let totalPrice = 0;
     for (const item of items) {
@@ -81,7 +85,7 @@ export const uploadPaymentProof = async (req, res) => {
     }
 
     const orderResult = await query(
-      `SELECT o.order_id, o.status, o.total_price, c.name as client_name 
+      `SELECT o.order_id, o.status, o.total_price, c.name as client_name, c.email as client_email
        FROM orders o
        JOIN clients c ON o.client_id = c.client_id
        WHERE o.order_id = $1 AND o.client_id = $2`,
@@ -141,7 +145,7 @@ export const uploadPaymentProof = async (req, res) => {
 
     if (isPaymentValid) {
       // (No hacemos 'await' para no hacer esperar al cliente)
-      generateAndSendInvoice(order.order_id, order.client_id);
+      generateAndSendInvoice(order.order_id, clientId);
     }
 
     res.json({
@@ -154,6 +158,49 @@ export const uploadPaymentProof = async (req, res) => {
     res
       .status(500)
       .json({ message: "Error en el servidor", error: error.message });
+  }
+};
+
+// --- NUEVA: ACTUALIZAR ESTADO DE LA ORDEN Y ENVIAR CORREOS SEGÚN ESTADO ---
+export const updateOrderStatus = async (req, res) => {
+  const { id } = req.params;
+  const { newStatus } = req.body;
+  try {
+    // 1. Obtener datos del cliente y orden
+    const orderResult = await query(
+      `SELECT o.*, c.email as client_email, c.name as client_name, o.invoice_pdf_url
+       FROM orders o JOIN clients c ON o.client_id = c.client_id
+       WHERE o.order_id = $1`,
+      [id]
+    );
+    if (orderResult.rows.length === 0) {
+      return res.status(404).json({ message: "Orden no encontrada" });
+    }
+    const order = orderResult.rows[0];
+
+    // 2. Actualizar el estado
+    await query(
+      "UPDATE orders SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE order_id = $2",
+      [newStatus, id]
+    );
+
+    // 3. Notificación automática
+    if (newStatus === "EN_EJECUCION") {
+      await sendOrderInProductionEmail(order.client_email, order.client_name, id);
+    }
+    if (newStatus === "COMPLETADO") {
+      await sendOrderCompletedEmail(
+        order.client_email,
+        order.client_name,
+        id,
+        order.invoice_pdf_url
+      );
+    }
+
+    res.json({ message: "Estado actualizado y notificación enviada" });
+  } catch (error) {
+    console.error("Error al actualizar estado de orden:", error);
+    res.status(500).json({ message: "Error al actualizar estado de orden" });
   }
 };
 

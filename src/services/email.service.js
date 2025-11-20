@@ -1,9 +1,9 @@
 import sgMail from "@sendgrid/mail";
 import "dotenv/config";
-import axios from "axios"; // Para PDF
+import axios from "axios";
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-const FROM_EMAIL = process.env.EMAIL_FROM; // Ejemplo: "aljijluz15@gmail.com"
+const FROM_EMAIL = process.env.EMAIL_FROM;
 
 // --- CORREO DE BIENVENIDA ---
 export const sendWelcomeEmail = async (toEmail, name) => {
@@ -12,10 +12,7 @@ export const sendWelcomeEmail = async (toEmail, name) => {
   try {
     const msg = {
       to: toEmail,
-      from: {
-        name: "Makip",
-        email: FROM_EMAIL,
-      },
+      from: { name: "Makip", email: FROM_EMAIL },
       subject: "¡Bienvenido/a a Makip! 🎉",
       html: `
         <div style="background: #f7fafc; padding: 36px 0; font-family: 'Segoe UI', Arial, sans-serif;">
@@ -64,10 +61,7 @@ export const sendPasswordResetEmail = async (toEmail, token) => {
     const resetUrl = `https://makip.pe/reset-password?token=${token}`;
     const msg = {
       to: toEmail,
-      from: {
-        name: "Makip",
-        email: FROM_EMAIL,
-      },
+      from: { name: "Makip", email: FROM_EMAIL },
       subject: "Restablece tu contraseña en Makip",
       html: `
         <div style="font-family: Arial, sans-serif; color: #333;">
@@ -101,28 +95,17 @@ export const sendOrderConfirmationEmail = async (
   pdfUrl
 ) => {
   let pdfAttachment = undefined;
-
   try {
-    // Descargar el PDF desde la URL pública de GCS
     const response = await axios.get(pdfUrl, { responseType: "arraybuffer" });
     const pdfBuffer = Buffer.from(response.data, "binary");
-
-    // Convertir a Base64 para SendGrid
     pdfAttachment = pdfBuffer.toString("base64");
   } catch (error) {
-    console.error(
-      `[Email] Error al descargar el PDF ${pdfUrl} para adjuntar:`,
-      error
-    );
-    // (Si falla, el correo se enviará sin el adjunto)
+    console.error(`[Email] Error al descargar el PDF ${pdfUrl} para adjuntar:`, error);
   }
 
   const msg = {
     to: toEmail,
-    from: {
-      name: "Makip",
-      email: FROM_EMAIL,
-    },
+    from: { name: "Makip", email: FROM_EMAIL },
     subject: `Confirmación de Pago: Pedido Makip #${orderId}`,
     html: `
       <div style="font-family: Arial, sans-serif; color: #333;">
@@ -143,16 +126,98 @@ export const sendOrderConfirmationEmail = async (
             disposition: "attachment",
           },
         ]
-      : [], // Array vacío si falla la descarga
+      : [],
   };
 
   try {
     await sgMail.send(msg);
-    console.log(
-      `Correo de confirmación de orden #${orderId} enviado a ${toEmail}`
-    );
+    console.log(`Correo de confirmación de orden #${orderId} enviado a ${toEmail}`);
   } catch (error) {
     console.error("Error al enviar correo de confirmación:", error);
+    if (error.response) {
+      console.error(error.response.body);
+    }
+  }
+};
+
+// --- CORREO DE PEDIDO EN PRODUCCIÓN ---
+export const sendOrderInProductionEmail = async (toEmail, name, orderId) => {
+  try {
+    const msg = {
+      to: toEmail,
+      from: { name: "Makip", email: FROM_EMAIL },
+      subject: `¡Tu pedido #${orderId} está en producción! 🚀`,
+      html: `
+        <div style="font-family: Arial, sans-serif;">
+          <h2 style="color: #1E63FF;">¡Tu pedido está en producción!</h2>
+          <p>Hola <b>${name}</b>,</p>
+          <p>Te confirmamos que tu pedido <strong>#${orderId}</strong> ha pasado a la fase de <b>producción</b>.<br>
+          Nuestro equipo está trabajando en tu producto personalizado.</p>
+          <p>Te avisaremos apenas esté terminado y listo para entrega.</p>
+          <div style="margin: 20px 0;">
+            <a href="https://makip.pe" style="display:inline-block; padding:12px 28px; background:#1E63FF; color:#fff; text-decoration:none; border-radius:8px; font-size:16px; font-weight:bold;">
+              Ver estado de mi pedido
+            </a>
+          </div>
+          <p>Gracias por confiar en Makip.<br>Equipo Makip</p>
+        </div>
+      `,
+    };
+    await sgMail.send(msg);
+    console.log(`[EMAIL] Correo de producción enviado a: ${toEmail}`);
+  } catch (error) {
+    console.error("[EMAIL] Error en correo de producción:", error);
+    if (error.response) {
+      console.error(error.response.body);
+    }
+  }
+};
+
+// --- CORREO DE PEDIDO COMPLETADO CON PDF ---
+export const sendOrderCompletedEmail = async (toEmail, name, orderId, pdfUrl) => {
+  let pdfAttachment = undefined;
+  try {
+    const response = await axios.get(pdfUrl, { responseType: "arraybuffer" });
+    const pdfBuffer = Buffer.from(response.data, "binary");
+    pdfAttachment = pdfBuffer.toString("base64");
+  } catch (error) {
+    console.error(`[Email] Error al descargar el PDF ${pdfUrl} para adjuntar:`, error);
+  }
+
+  try {
+    const msg = {
+      to: toEmail,
+      from: { name: "Makip", email: FROM_EMAIL },
+      subject: `¡Tu pedido #${orderId} ha sido completado! 🎉`,
+      html: `
+        <div style="font-family: Arial, sans-serif;">
+          <h2 style="color: #1E63FF;">¡Pedido Terminado!</h2>
+          <p>Hola <b>${name}</b>,</p>
+          <p>Tu pedido <strong>#${orderId}</strong> ya está <b>terminado</b> y listo para entrega o recojo.</p>
+          <p>Adjuntamos la boleta/factura para tus registros.</p>
+          <div style="margin: 20px 0;">
+            <a href="https://makip.pe" style="display:inline-block; padding:12px 28px; background:#1E63FF; color:#fff; text-decoration:none; border-radius:8px; font-size:16px; font-weight:bold;">
+              Volver a la tienda
+            </a>
+          </div>
+          <p><b>El equipo Makip</b></p>
+        </div>
+      `,
+      attachments: pdfAttachment
+        ? [
+            {
+              content: pdfAttachment,
+              filename: `Pedido_Makip_${orderId}.pdf`,
+              type: "application/pdf",
+              disposition: "attachment",
+            },
+          ]
+        : [],
+    };
+    await sgMail.send(msg);
+    console.log(`[EMAIL] Correo de completado enviado a: ${toEmail}`);
+  } catch (error) {
+    console.error("[EMAIL] Error en correo de completado:", error);
     if (error.response) {
       console.error(error.response.body);
     }
