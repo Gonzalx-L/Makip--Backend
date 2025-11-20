@@ -4,7 +4,7 @@ import { query } from "../config/db.js";
 export const getAllClients = async (req, res) => {
   // 💡 1. Obtenemos los filtros del query string
   const { search, startDate, endDate } = req.query;
-
+//   console.log("[ADMIN CLIENTS] Filtros recibidos:", { search, startDate, endDate });
   try {
     // 💡 2. Construimos la consulta SQL dinámicamente
     let sqlQuery = `
