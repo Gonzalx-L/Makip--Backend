@@ -47,6 +47,7 @@ export const generateOrderPDFBuffer = (order) => {
       .text("Av. Tu Dirección 123", 50, 82, { align: "left" })
       .text("Lima, Perú", 50, 96, { align: "left" });
 
+    // --- Bloque Derecho (Info Orden + 💡 CÓDIGO DE RECOJO) ---
     doc
       .fillColor("#111")
       .fontSize(18)
@@ -63,11 +64,33 @@ export const generateOrderPDFBuffer = (order) => {
         align: "right",
       });
 
+    // 💡 LÓGICA NUEVA: Mostrar Código de Recojo o Tipo de Envío
+    if (order.delivery_type === 'PICKUP' && order.pickup_code) {
+      // Si es recojo, lo destacamos en ROJO
+      doc
+        .moveDown(0.5)
+        .fillColor("#E11D48") // Rojo llamativo
+        .fontSize(12)
+        .font("Helvetica-Bold")
+        .text(`RECOJO EN TIENDA`, 200, doc.y, { align: "right" })
+        .fontSize(14)
+        .text(`CÓDIGO: ${order.pickup_code}`, 200, doc.y, { align: "right" });
+    } else {
+      // Si es envío normal
+      doc
+        .moveDown(0.5)
+        .fillColor("#333")
+        .fontSize(10)
+        .text(`Método: Envío a Domicilio`, 200, doc.y, { align: "right" });
+    }
+
     doc.moveDown(4);
 
     // --- Información del Cliente ---
-    const customerInfoTop = 150;
+    // (Ajustamos un poco la posición Y para que no choque con lo de arriba)
+    const customerInfoTop = 160; 
     doc
+      .fillColor("#333")
       .fontSize(12)
       .font("Helvetica-Bold")
       .text("Cliente:", 50, customerInfoTop)
@@ -78,7 +101,7 @@ export const generateOrderPDFBuffer = (order) => {
     doc.moveDown(4);
 
     // --- Tabla de Items ---
-    const tableTop = 230;
+    const tableTop = 240;
     const itemCol = 50;
     const qtyCol = 350;
     const priceCol = 400;
@@ -101,18 +124,36 @@ export const generateOrderPDFBuffer = (order) => {
 
     // Filas
     for (const item of order.items || []) {
+      doc.fillColor("#333");
       doc.text(item.product_name, itemCol, y, { width: 280 });
 
+      // 💡 MEJORA: Mostrar variantes (Talla, Color) si existen
+      let details = "";
+      
+      // 1. Personalización
       if (item.personalization_data?.image_url) {
-        doc
-          .fillColor("#555")
-          .fontSize(8)
-          .text("(Personalizado con logo)", itemCol, y + 12, {
-            width: 280,
-          });
-        y += 12;
+        details += "(Con Logo Personalizado) ";
+      }
+      
+      // 2. Variantes (Esto faltaba en tu versión anterior)
+      if (item.selected_variant) {
+        // Convierte {"talla": "M", "color": "Rojo"} a "talla: M, color: Rojo"
+        const variantText = Object.entries(item.selected_variant)
+          .map(([key, val]) => `${key}: ${val}`)
+          .join(", ");
+        details += `| ${variantText}`;
       }
 
+      // Si hay detalles extra, los pintamos en gris debajo del nombre
+      if (details) {
+        doc
+          .fillColor("#666")
+          .fontSize(8)
+          .text(details, itemCol, y + 12, { width: 280 });
+        y += 12; // Bajamos un poco más el cursor
+      }
+
+      // Volvemos al color normal para los números
       doc.fillColor("#333").fontSize(10);
 
       doc.text(String(item.quantity), qtyCol, y, {
@@ -130,7 +171,7 @@ export const generateOrderPDFBuffer = (order) => {
         align: "right",
       });
 
-      y += 30;
+      y += 30; // Espacio entre filas
     }
 
     // --- Total General ---
@@ -147,9 +188,14 @@ export const generateOrderPDFBuffer = (order) => {
       align: "right",
     });
 
-    // Mensaje final
+    // Mensaje final (Dinamico según tipo de entrega)
     doc.fillColor("#888").fontSize(9).font("Helvetica");
-    doc.text("¡Gracias por tu compra!", 50, 750, {
+    
+    const footerText = order.delivery_type === 'PICKUP'
+      ? "Por favor presenta tu código de recojo en tienda para retirar tu pedido."
+      : "¡Gracias por tu compra! Tu pedido llegará pronto.";
+
+    doc.text(footerText, 50, 750, {
       align: "center",
       width: 510,
     });
@@ -159,16 +205,18 @@ export const generateOrderPDFBuffer = (order) => {
 };
 
 /**
- * Envía el PDF directamente al response usando el mismo diseño de arriba.
- * @param {object} order - Orden con items y datos de cliente
- * @param {import('express').Response} res
+ * Envía el PDF directamente al response (usado para descargar en Admin)
  */
-export const pipePDFToResponse = async (order, res) => {
-  try {
-    const pdfBuffer = await generateOrderPDFBuffer(order);
-    res.end(pdfBuffer);
-  } catch (error) {
-    console.error("Error al generar PDF para respuesta:", error);
-    res.status(500).end("Error al generar PDF");
-  }
+export const pipePDFToResponse = (order, res) => {
+  // Reutilizamos la lógica interna llamando a la función buffer y enviándola
+  // Esto evita duplicar código de diseño.
+  generateOrderPDFBuffer(order)
+    .then((pdfBuffer) => {
+      res.setHeader("Content-Type", "application/pdf");
+      res.end(pdfBuffer);
+    })
+    .catch((error) => {
+      console.error("Error al pipePDFToResponse:", error);
+      res.status(500).end("Error generando PDF");
+    });
 };

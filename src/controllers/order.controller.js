@@ -6,15 +6,28 @@ import { generateOrderPDFBuffer } from "../services/pdf.service.js";
 import { sendOrderConfirmationEmail } from "../services/email.service.js";
 import { sendInvoiceNotification } from "../services/whatsapp.service.js";
 
+// 💡 --- FUNCIÓN AUXILIAR: Generar código de recojo ---
+// Genera un código corto y fácil de leer (ej: "REC-A1B2")
+const generatePickupCode = () => {
+  const randomStr = Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `REC-${randomStr}`;
+};
+
 // --- (CLIENTE) CREAR UN NUEVO PEDIDO/COTIZACIÓN ---
 export const createOrder = async (req, res) => {
   const clientId = req.client.client_id;
-  const { items } = req.body;
+  // 1. Ahora esperamos 'delivery_type' del frontend
+  const { items, delivery_type } = req.body;
+
   if (!items || items.length === 0) {
     return res
       .status(400)
       .json({ message: "El pedido debe tener al menos un artículo" });
   }
+
+  // 2. Validamos el tipo de entrega (por seguridad, default es DELIVERY)
+  const validTypes = ['DELIVERY', 'PICKUP'];
+  const finalDeliveryType = validTypes.includes(delivery_type) ? delivery_type : 'DELIVERY';
 
   const clientDB = await query("BEGIN");
   try {
@@ -23,10 +36,22 @@ export const createOrder = async (req, res) => {
       totalPrice += item.item_price * item.quantity;
     }
 
+    // 3. Lógica de Estado y Código según el método
+    let initialStatus = 'NO_PAGADO'; // Default para envío
+    let pickupCode = null;
+
+    if (finalDeliveryType === 'PICKUP') {
+      // Si es recojo en tienda:
+      initialStatus = 'PENDIENTE'; // ¡Pasa directo a pendiente!
+      pickupCode = generatePickupCode(); // Generamos el código único
+    }
+
+    // 4. Insertamos en la BD con las nuevas columnas
     const orderResult = await query(
-      `INSERT INTO orders (client_id, status, total_price) 
-       VALUES ($1, 'NO_PAGADO', $2) RETURNING order_id, created_at, status, total_price`,
-      [clientId, totalPrice]
+      `INSERT INTO orders (client_id, status, total_price, delivery_type, pickup_code) 
+       VALUES ($1, $2, $3, $4, $5) 
+       RETURNING order_id, created_at, status, total_price, delivery_type, pickup_code`,
+      [clientId, initialStatus, totalPrice, finalDeliveryType, pickupCode]
     );
     const newOrder = orderResult.rows[0];
 
@@ -44,8 +69,12 @@ export const createOrder = async (req, res) => {
         ]
       );
     }
+
     await query("COMMIT");
+
+    // 5. Devolvemos el pedido creado (incluyendo el pickup_code si existe)
     res.status(201).json(newOrder);
+    
   } catch (error) {
     await query("ROLLBACK");
     console.error("Error al crear pedido:", error);
@@ -59,8 +88,12 @@ export const createOrder = async (req, res) => {
 export const getMyOrders = async (req, res) => {
   const clientId = req.client.client_id;
   try {
+    // 💡 Actualizamos la consulta para que el cliente vea el código y el tipo
     const result = await query(
-      "SELECT order_id, status, total_price, due_date, created_at FROM orders WHERE client_id = $1 ORDER BY created_at DESC",
+      `SELECT order_id, status, total_price, due_date, created_at, delivery_type, pickup_code 
+       FROM orders 
+       WHERE client_id = $1 
+       ORDER BY created_at DESC`,
       [clientId]
     );
     res.json(result.rows);
@@ -70,6 +103,7 @@ export const getMyOrders = async (req, res) => {
   }
 };
 
+// ... (Mantén el resto de funciones: uploadPaymentProof, generateAndSendInvoice tal como estaban) ...
 // --- (CLIENTE) SUBIR COMPROBANTE DE PAGO (VERSIÓN CON OCR) ---
 export const uploadPaymentProof = async (req, res) => {
   const { id } = req.params;
