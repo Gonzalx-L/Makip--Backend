@@ -16,7 +16,7 @@ const generatePickupCode = () => {
   const randomStr = Math.random().toString(36).substring(2, 6).toUpperCase();
   return `REC-${randomStr}`;
 };
-
+/* ============================================================
 /* ============================================================
    🔎 UTILIDADES OCR (MEJORADAS)
 ============================================================ */
