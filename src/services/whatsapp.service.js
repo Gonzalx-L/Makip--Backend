@@ -44,9 +44,7 @@ const sendWhatsAppMessage = async (to, data) => {
   }
 };
 
-/**
- * 💡 (¡MODIFICADO!) Obtiene el número de teléfono real de un cliente desde la BD
- */
+// --- OBTENER TELÉFONO ---
 const getClientPhone = async (clientId) => {
   try {
     const result = await query(
@@ -66,9 +64,7 @@ const getClientPhone = async (clientId) => {
   }
 };
 
-/**
- * Envía la notificación de "En Ejecución" con el mockup
- */
+// --- EN EJECUCIÓN (PRODUCCIÓN) ---
 export const sendExecutionNotification = async (
   clientId,
   orderId,
@@ -80,7 +76,7 @@ export const sendExecutionNotification = async (
   const messageData = {
     type: "template",
     template: {
-      name: "order_in_production", // Nombre de la plantilla que creaste en Meta
+      name: "order_in_production", // Plantilla Meta, DEBES crearla en WhatsApp
       language: { code: "es_MX" },
       components: [
         {
@@ -97,33 +93,59 @@ export const sendExecutionNotification = async (
   await sendWhatsAppMessage(clientPhone, messageData);
 };
 
-/**
- * Envía la notificación de "Pedido Terminado"
- */
-export const sendCompletedNotification = async (clientId, orderId) => {
+// --- COMPLETADO (con o sin PDF) ---
+export const sendCompletedNotification = async (clientId, orderId, pdfUrl = null) => {
   const clientPhone = await getClientPhone(clientId);
   if (!clientPhone) return;
 
-  const messageData = {
-    type: "template",
-    template: {
-      name: "order_completed", // Nombre de la plantilla que creaste en Meta
-      language: { code: "es_MX" },
-      components: [
-        {
-          type: "body",
-          parameters: [{ type: "text", text: `${orderId}` }],
-        },
-      ],
-    },
-  };
+  let messageData;
+  if (pdfUrl) {
+    // Si quieres adjuntar el PDF de factura al mensaje de completado
+    messageData = {
+      type: "template",
+      template: {
+        name: "order_completed_with_pdf", // Crea esta plantilla en Meta, con documento
+        language: { code: "es_MX" },
+        components: [
+          {
+            type: "header",
+            parameters: [
+              {
+                type: "document",
+                document: {
+                  link: pdfUrl,
+                  filename: `Pedido_${orderId}.pdf`,
+                },
+              },
+            ],
+          },
+          {
+            type: "body",
+            parameters: [{ type: "text", text: `${orderId}` }],
+          },
+        ],
+      },
+    };
+  } else {
+    // Notificación simple (solo texto)
+    messageData = {
+      type: "template",
+      template: {
+        name: "order_completed", // Plantilla simple en Meta
+        language: { code: "es_MX" },
+        components: [
+          {
+            type: "body",
+            parameters: [{ type: "text", text: `${orderId}` }],
+          },
+        ],
+      },
+    };
+  }
   await sendWhatsAppMessage(clientPhone, messageData);
 };
 
-// 💡 --- ¡NUEVA FUNCIÓN! ---
-/**
- * Envía la Factura/PDF del pedido cuando el pago es aprobado
- */
+// --- PAGO APROBADO (Factura PDF) ---
 export const sendInvoiceNotification = async (clientId, orderId, pdfUrl) => {
   const clientPhone = await getClientPhone(clientId);
   if (!clientPhone) return;
@@ -131,8 +153,7 @@ export const sendInvoiceNotification = async (clientId, orderId, pdfUrl) => {
   const messageData = {
     type: "template",
     template: {
-      // 💡 (Debes crear esta plantilla en Meta)
-      name: "order_payment_confirmed",
+      name: "order_payment_confirmed", // Plantilla Meta, con documento adjunto
       language: { code: "es_MX" },
       components: [
         {
