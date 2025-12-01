@@ -148,7 +148,7 @@ export const sendOrderInProductionEmail = async (toEmail, name, orderId) => {
       from: { name: "Makip", email: FROM_EMAIL },
       subject: `¡Tu pedido #${orderId} está en producción! 🚀`,
       html: `
-        <div style="font-family: Arial, sans-serif;">
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto;">
           <h2 style="color: #1E63FF;">¡Tu pedido está en producción!</h2>
           <p>Hola <b>${name}</b>,</p>
           <p>Te confirmamos que tu pedido <strong>#${orderId}</strong> ha pasado a la fase de <b>producción</b>.<br>
@@ -164,9 +164,9 @@ export const sendOrderInProductionEmail = async (toEmail, name, orderId) => {
       `,
     };
     await sgMail.send(msg);
-    console.log(`[EMAIL] Correo de producción enviado a: ${toEmail}`);
+    console.log(`[EMAIL] ✅ Correo de producción enviado a: ${toEmail}`);
   } catch (error) {
-    console.error("[EMAIL] Error en correo de producción:", error);
+    console.error("[EMAIL] ❌ Error en correo de producción:", error);
     if (error.response) {
       console.error(error.response.body);
     }

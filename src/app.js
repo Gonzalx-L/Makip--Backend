@@ -47,6 +47,9 @@ app.use("/api/v1/auth", clientAuthRoutes);
 // Catálogo público
 app.use("/api/v1/public", publicRoutes);
 
+// Upload de logos de clientes (público)
+app.use("/api/upload", uploadRoutes);
+
 // Power BI (token embebido)
 app.use("/api/v1/dashboard", dashboardRoutes);
 
@@ -75,7 +78,7 @@ app.use("/api/v1/admin/clients", adminClientRoutes);
 // Dashboard resumen (admin)
 app.use("/api/v1/admin/dashboard-summary", adminDashboardRoutes);
 
-// Subida de archivos (productos, etc.)
+// Subida de archivos protegida (productos del admin)
 app.use("/api/v1/upload", uploadRoutes);
 
 // Categorías y productos (admin)

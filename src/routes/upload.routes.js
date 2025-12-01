@@ -1,6 +1,6 @@
 // src/routes/upload.routes.js
 import { Router } from "express";
-import { uploadProductImage, uploadPersonalizationImage } from "../controllers/upload.controller.js";
+import { uploadProductImage, uploadPersonalizationImage, uploadLogo } from "../controllers/upload.controller.js";
 import { upload } from "../middleware/multer.middleware.js";
 
 const router = Router();
@@ -17,6 +17,13 @@ router.post(
   "/personalization-image",
   upload.single("file"),
   uploadPersonalizationImage
+);
+
+// POST /api/upload/logos (para logos de clientes)
+router.post(
+  "/logos",
+  upload.single("file"),
+  uploadLogo
 );
 
 export default router;

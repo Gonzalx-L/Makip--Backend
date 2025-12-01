@@ -29,12 +29,13 @@ export const createProduct = async (req, res) => {
     variants,
     personalization_metadata,
     base_image_url,
+    is_personalizable,
   } = req.body;
 
   try {
     const result = await query(
-      `INSERT INTO products (category_id, name, description, base_price, min_order_quantity, base_image_url, variants, personalization_metadata, is_active) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true) RETURNING *`,
+      `INSERT INTO products (category_id, name, description, base_price, min_order_quantity, base_image_url, variants, personalization_metadata, is_personalizable, is_active) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true) RETURNING *`,
       [
         category_id,
         name,
@@ -44,6 +45,7 @@ export const createProduct = async (req, res) => {
         base_image_url,
         variants,
         personalization_metadata,
+        is_personalizable || false,
       ]
     );
     res.status(201).json(result.rows[0]);
@@ -66,6 +68,7 @@ export const updateProduct = async (req, res) => {
     personalization_metadata,
     is_active,
     base_image_url,
+    is_personalizable,
   } = req.body;
 
   try {
@@ -73,8 +76,8 @@ export const updateProduct = async (req, res) => {
       `UPDATE products SET 
          category_id = $1, name = $2, description = $3, base_price = $4, 
          min_order_quantity = $5, variants = $6, personalization_metadata = $7, is_active = $8,
-         base_image_url = $9
-       WHERE product_id = $10 RETURNING *`,
+         base_image_url = $9, is_personalizable = COALESCE($10, is_personalizable)
+       WHERE product_id = $11 RETURNING *`,
       [
         category_id,
         name,
@@ -85,6 +88,7 @@ export const updateProduct = async (req, res) => {
         personalization_metadata,
         is_active,
         base_image_url,
+        is_personalizable,
         id,
       ]
     );

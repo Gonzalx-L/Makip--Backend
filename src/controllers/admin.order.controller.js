@@ -285,7 +285,7 @@ export const updateOrderStatus = async (req, res) => {
     let notificationsSent = false;
     
     try {
-      // EN_EJECUCION: Enviar correo de producción iniciada
+      // EN_EJECUCION: Enviar correo de producción
       if (newStatus === "EN_EJECUCION") {
         console.log(`[EMAIL] 📤 Intentando enviar correo de producción a ${order.client_email}...`);
         await sendOrderInProductionEmail(order.client_email, order.client_name, id);
@@ -332,41 +332,6 @@ export const updateOrderStatus = async (req, res) => {
         console.error(`[EMAIL] ❌ Respuesta del servicio:`, emailError.response.body);
       }
       // No fallar la actualización de estado si falla el correo
-    }
-
-    // 4. Orquestación WhatsApp según nuevo estado (OPCIONAL)
-    if (newStatus === "EN_EJECUCION") {
-      // TODO: Generar mockup y enviar WhatsApp con imagen (PENDIENTE)
-      /* 
-      const itemsResult = await query(
-        `SELECT 
-           oi.*,
-           p.name as product_name
-         FROM order_items oi
-         JOIN products p ON oi.product_id = p.product_id
-         WHERE oi.order_id = $1`,
-        [id]
-      );
-
-      const items = itemsResult.rows;
-
-      if (items.length > 0) {
-        const mockupUrl = await generateMockup(items[0]);
-
-        if (mockupUrl) {
-          await sendExecutionNotification(
-            order.client_id,
-            order.order_id,
-            mockupUrl
-          );
-        }
-      }
-      */
-    }
-
-    if (newStatus === "TERMINADO" || newStatus === "COMPLETADO") {
-      // TODO: Notificación de pedido completado por WhatsApp (PENDIENTE)
-      // await sendCompletedNotification(order.client_id, order.order_id);
     }
 
     res.json({
