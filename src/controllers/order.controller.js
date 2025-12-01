@@ -328,6 +328,158 @@ export const updateOrderStatus = async (req, res) => {
 };
 
 /* ============================================================
+   (CLIENTE) OBTENER TRACKING DE UN PEDIDO
+============================================================ */
+export const getOrderTracking = async (req, res) => {
+  const { orderId } = req.params;
+  
+  try {
+    // Buscar la orden con datos del cliente
+    const orderResult = await query(
+      `SELECT 
+         o.order_id,
+         o.status,
+         o.created_at,
+         o.updated_at,
+         o.delivery_type,
+         o.pickup_code,
+         o.total_price,
+         c.name as client_name
+       FROM orders o
+       JOIN clients c ON o.client_id = c.client_id
+       WHERE o.order_id = $1`,
+      [orderId]
+    );
+
+    if (orderResult.rows.length === 0) {
+      return res.status(404).json({ message: "Pedido no encontrado" });
+    }
+
+    const order = orderResult.rows[0];
+
+    // Obtener items del pedido
+    const itemsResult = await query(
+      `SELECT 
+         oi.*,
+         p.name as product_name,
+         p.image_url as product_image
+       FROM order_items oi
+       JOIN products p ON oi.product_id = p.product_id
+       WHERE oi.order_id = $1`,
+      [orderId]
+    );
+
+    // Mapear el estado actual a formato de tracking
+    const trackingData = mapOrderStatusToTracking(order, itemsResult.rows);
+    
+    res.json(trackingData);
+  } catch (error) {
+    console.error("Error al obtener tracking del pedido:", error);
+    res.status(500).json({ message: "Error en el servidor" });
+  }
+};
+
+// Función auxiliar para mapear el estado de la orden al formato de tracking
+const mapOrderStatusToTracking = (order, items) => {
+  const updates = [];
+  const status = order.status;
+  
+  // Paso 1: Pedido Confirmado
+  if (status !== 'NO_PAGADO' && status !== 'PAGO_EN_VERIFICACION') {
+    updates.push({
+      status: 'Confirmado',
+      description: 'Pedido confirmado y pago aprobado',
+      date: new Date(order.created_at).toLocaleString('es-ES'),
+      isComplete: true
+    });
+  }
+
+  // Paso 2: En Producción
+  if (status === 'EN_EJECUCION' || status === 'TERMINADO' || status === 'COMPLETADO') {
+    updates.push({
+      status: 'En Producción',
+      description: 'Tu pedido está siendo producido',
+      date: new Date(order.updated_at).toLocaleString('es-ES'),
+      isComplete: true
+    });
+  }
+
+  // Paso 3: Producción Terminada
+  if (status === 'TERMINADO' || status === 'COMPLETADO') {
+    updates.push({
+      status: 'Producción Finalizada',
+      description: 'Tu pedido ha sido completado y empaquetado',
+      date: new Date(order.updated_at).toLocaleString('es-ES'),
+      isComplete: true
+    });
+  }
+
+  // Paso 4: Entregado/Listo para Recojo
+  if (status === 'COMPLETADO') {
+    if (order.delivery_type === 'PICKUP') {
+      updates.push({
+        status: 'Listo para Recojo',
+        description: `Tu pedido está listo. Código: ${order.pickup_code || 'N/A'}`,
+        date: new Date(order.updated_at).toLocaleString('es-ES'),
+        isComplete: true
+      });
+    } else {
+      updates.push({
+        status: 'Entregado',
+        description: 'Pedido entregado exitosamente',
+        date: new Date(order.updated_at).toLocaleString('es-ES'),
+        isComplete: true
+      });
+    }
+  }
+
+  // Determinar el estado del banner principal
+  let statusBanner = '';
+  switch (status) {
+    case 'NO_PAGADO':
+      statusBanner = 'Esperando Pago';
+      break;
+    case 'PAGO_EN_VERIFICACION':
+      statusBanner = 'Verificando Pago';
+      break;
+    case 'PENDIENTE':
+      statusBanner = 'Pedido Confirmado';
+      break;
+    case 'EN_EJECUCION':
+      statusBanner = 'En Producción';
+      break;
+    case 'TERMINADO':
+      statusBanner = 'Producción Finalizada';
+      break;
+    case 'COMPLETADO':
+      if (order.delivery_type === 'PICKUP') {
+        statusBanner = `Listo para Recojo - Código: ${order.pickup_code}`;
+      } else {
+        statusBanner = 'Entregado';
+      }
+      break;
+    case 'CANCELADO':
+      statusBanner = 'Pedido Cancelado';
+      break;
+    default:
+      statusBanner = 'En Proceso';
+  }
+
+  return {
+    id: order.order_id.toString(),
+    statusBanner,
+    carrier: 'Makip Express',
+    carrierTrackingId: `MKP${order.order_id.toString().padStart(6, '0')}`,
+    updates,
+    productName: items[0]?.product_name || 'Producto Personalizado',
+    productImage: items[0]?.product_image || items[0]?.personalization_data?.image_url,
+    delivery_type: order.delivery_type,
+    pickup_code: order.pickup_code,
+    currentStatus: status
+  };
+};
+
+/* ============================================================
    GENERAR FACTURA + ENVIAR EMAIL + WHATSAPP
 ============================================================ */
 const generateAndSendInvoice = async (orderId, clientId) => {

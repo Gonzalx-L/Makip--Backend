@@ -3,6 +3,7 @@ import {
   createOrder,
   getMyOrders,
   uploadPaymentProof, // <-- ¡NUEVA!
+  getOrderTracking, // <-- ¡NUEVA para tracking!
 } from "../controllers/order.controller.js";
 import { protectClientRoute } from "../middleware/client.auth.middleware.js";
 import { upload } from "../middleware/multer.middleware.js"; // <-- ¡IMPORTAMOS MULTER!
@@ -28,5 +29,9 @@ router.post(
   upload.single("file"), // <-- MULTER ACTÚA AQUÍ
   uploadPaymentProof // <-- NUEVO CONTROLADOR
 );
+
+// GET /api/v1/orders/:orderId/tracking
+// Obtener información de tracking del pedido
+router.get("/:orderId/tracking", getOrderTracking);
 
 export default router;

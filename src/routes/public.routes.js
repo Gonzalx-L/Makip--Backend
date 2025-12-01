@@ -3,6 +3,7 @@ import {
   getPublicCategories,
   getPublicProducts,
   getPublicProductById,
+  getOrderTrackingPublic, // <-- NUEVA función de tracking
 } from "../controllers/public.controller.js";
 
 const router = Router();
@@ -15,5 +16,8 @@ router.get("/products", getPublicProducts);
 
 // URL: GET /api/v1/public/products/:id
 router.get("/products/:id", getPublicProductById);
+
+// URL: GET /api/v1/public/tracking/:orderId
+router.get("/tracking/:orderId", getOrderTrackingPublic);
 
 export default router;
