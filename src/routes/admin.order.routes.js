@@ -7,7 +7,9 @@ import {
   getOrderByPickupCode,
   getOrderStats,
   updateOrderStatus,
-  downloadOrderPDF, // 💡 1. Importa la nueva función
+  downloadOrderPDF,
+  uploadShippingReceipt,
+  resendShippingEmail, // Nueva función para reenviar
 } from "../controllers/admin.order.controller.js";
 
 const router = Router();
@@ -33,8 +35,16 @@ router.get("/:id", getOrderById);
 // PATCH /api/v1/admin/orders/:id/status
 router.patch("/:id/status", updateOrderStatus);
 
-// 💡 2. AÑADE LA NUEVA RUTA
 // GET /api/v1/admin/orders/:id/pdf
 router.get("/:id/pdf", downloadOrderPDF);
+
+// POST /api/v1/admin/orders/:id/shipping-receipt
+// Subir boleta de envío (requiere multer middleware)
+import { upload } from "../middleware/multer.middleware.js";
+router.post("/:id/shipping-receipt", upload.single("receipt"), uploadShippingReceipt);
+
+// POST /api/v1/admin/orders/:id/resend-shipping-email
+// Reenviar email de envío con boleta adjunta
+router.post("/:id/resend-shipping-email", resendShippingEmail);
 
 export default router;

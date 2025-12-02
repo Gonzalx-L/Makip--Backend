@@ -285,6 +285,62 @@ export const updateOrderStatus = async (req, res) => {
     let notificationsSent = false;
     
     try {
+      // PENDIENTE: Si se aprueba manualmente un pago, generar PDF y enviar correo de confirmación
+      if (newStatus === "PENDIENTE" && currentStatus === "PAGO_EN_VERIFICACION") {
+        console.log(`[EMAIL] 💳 Pago aprobado manualmente por admin para orden #${id}`);
+        console.log(`[EMAIL] 📤 Generando PDF y enviando correo de confirmación...`);
+        
+        // Importar la función generateAndSendInvoice (necesitamos acceso)
+        const { generateOrderPDFBuffer } = await import("../services/pdf.service.js");
+        const { uploadToGCS } = await import("../services/gcs.service.js");
+        const { sendOrderConfirmationEmail } = await import("../services/email.service.js");
+        
+        // Obtener items de la orden
+        const itemsResult = await query(
+          `SELECT oi.*, p.name as product_name
+           FROM order_items oi
+           JOIN products p ON oi.product_id = p.product_id
+           WHERE oi.order_id = $1`,
+          [id]
+        );
+        
+        const orderData = {
+          ...order,
+          items: itemsResult.rows
+        };
+        
+        // Generar PDF
+        console.log(`[PDF] Generando PDF para orden #${id}...`);
+        const pdfBuffer = await generateOrderPDFBuffer(orderData);
+        console.log(`[PDF] PDF generado exitosamente, tamaño: ${pdfBuffer.length} bytes`);
+        
+        // Subir a GCS
+        const pdfFile = {
+          buffer: pdfBuffer,
+          mimetype: "application/pdf",
+          originalname: `factura_orden_${id}.pdf`,
+        };
+        
+        console.log(`[PDF] Subiendo PDF a Google Cloud Storage...`);
+        const pdfUrl = await uploadToGCS(pdfFile, "invoices");
+        console.log(`[PDF] PDF subido exitosamente: ${pdfUrl}`);
+        
+        // Guardar URL del PDF en la orden
+        await query("UPDATE orders SET invoice_pdf_url = $1 WHERE order_id = $2", [pdfUrl, id]);
+        console.log(`[PDF] URL del PDF guardada en la base de datos`);
+        
+        // Enviar correo de confirmación
+        console.log(`[EMAIL] 📤 Enviando correo de confirmación a ${order.client_email}...`);
+        await sendOrderConfirmationEmail(
+          order.client_email,
+          order.client_name,
+          id,
+          pdfUrl
+        );
+        console.log(`[EMAIL] ✅ Correo de confirmación enviado exitosamente`);
+        notificationsSent = true;
+      }
+      
       // EN_EJECUCION: Enviar correo de producción
       if (newStatus === "EN_EJECUCION") {
         console.log(`[EMAIL] 📤 Intentando enviar correo de producción a ${order.client_email}...`);
@@ -353,12 +409,14 @@ export const downloadOrderPDF = async (req, res) => {
   const { id } = req.params;
 
   try {
-    // Obtener orden + cliente
+    // Obtener orden + cliente (con phone y address si existen)
     const orderResult = await query(
       `SELECT 
          o.*,
          c.name  as client_name,
-         c.email as client_email
+         c.email as client_email,
+         c.phone as client_phone,
+         c.address as client_address
        FROM orders o
        JOIN clients c ON o.client_id = c.client_id
        WHERE o.order_id = $1`,
@@ -395,5 +453,176 @@ export const downloadOrderPDF = async (req, res) => {
   } catch (error) {
     console.error("Error al generar PDF del pedido:", error);
     res.status(500).json({ message: "Error en el servidor" });
+  }
+};
+
+// --- (ADMIN) SUBIR BOLETA DE ENVÍO Y ENVIAR EMAIL FINAL ---
+export const uploadShippingReceipt = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // 1. Verificar que la orden existe y está en COMPLETADO
+    const orderResult = await query(
+      `SELECT o.*, c.name as client_name, c.email as client_email, c.phone as client_phone
+       FROM orders o
+       JOIN clients c ON o.client_id = c.client_id
+       WHERE o.order_id = $1`,
+      [id]
+    );
+
+    if (orderResult.rows.length === 0) {
+      return res.status(404).json({ message: "Orden no encontrada" });
+    }
+
+    const order = orderResult.rows[0];
+
+    if (order.status !== "COMPLETADO") {
+      return res.status(400).json({ 
+        message: "Solo se puede subir boleta de envío para órdenes COMPLETADAS" 
+      });
+    }
+
+    // 2. Verificar que se subió una imagen
+    if (!req.file) {
+      return res.status(400).json({ message: "No se subió ninguna imagen" });
+    }
+
+    console.log(`[SHIPPING] Procesando boleta de envío para orden #${id}...`);
+
+    // 3. Subir imagen a Google Cloud Storage
+    const { uploadToGCS } = await import("../services/gcs.service.js");
+    const shippingReceiptUrl = await uploadToGCS(req.file, "shipping-receipts");
+    
+    console.log(`[SHIPPING] Imagen subida: ${shippingReceiptUrl}`);
+
+    // 4. Extraer datos con OCR
+    const { extractShippingReceiptData } = await import("../services/ocr.service.js");
+    const shippingData = await extractShippingReceiptData(req.file.buffer);
+    
+    console.log(`[SHIPPING] Datos extraídos:`, shippingData);
+
+    // 5. Guardar en base de datos
+    await query(
+      `UPDATE orders 
+       SET shipping_receipt_url = $1,
+           shipping_tracking_number = $2,
+           shipping_company = $3,
+           shipping_date = $4,
+           shipping_sender_name = $5,
+           shipping_sender_dni = $6,
+           shipping_sender_phone = $7,
+           shipping_recipient_name = $8,
+           shipping_recipient_dni = $9,
+           shipping_recipient_phone = $10
+       WHERE order_id = $11`,
+      [
+        shippingReceiptUrl,
+        shippingData.trackingNumber,
+        shippingData.company,
+        shippingData.shippingDate,
+        shippingData.senderName,
+        shippingData.senderDni,
+        shippingData.senderPhone,
+        shippingData.recipientName,
+        shippingData.recipientDni,
+        shippingData.recipientPhone,
+        id
+      ]
+    );
+
+    console.log(`[SHIPPING] Datos guardados en BD`);
+
+    // 6. Enviar correo final con la boleta
+    const { sendShippingConfirmationEmail } = await import("../services/email.service.js");
+    await sendShippingConfirmationEmail(order, shippingData, shippingReceiptUrl);
+
+    console.log(`[SHIPPING] ✅ Correo enviado exitosamente`);
+
+    res.json({
+      message: "Boleta de envío procesada y correo enviado",
+      shippingData,
+      shippingReceiptUrl
+    });
+
+  } catch (error) {
+    console.error("[SHIPPING] ❌ Error:", error);
+    res.status(500).json({ 
+      message: "Error al procesar boleta de envío",
+      error: error.message 
+    });
+  }
+};
+
+// --- (ADMIN) REENVIAR EMAIL DE ENVÍO CON BOLETA ---
+export const resendShippingEmail = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // 1. Verificar que la orden existe y tiene boleta
+    const orderResult = await query(
+      `SELECT 
+         o.*,
+         c.name as client_name, 
+         c.email as client_email, 
+         c.phone as client_phone
+       FROM orders o
+       JOIN clients c ON o.client_id = c.client_id
+       WHERE o.order_id = $1`,
+      [id]
+    );
+
+    if (orderResult.rows.length === 0) {
+      return res.status(404).json({ message: "Orden no encontrada" });
+    }
+
+    const order = orderResult.rows[0];
+    
+    console.log(`[SHIPPING RESEND] Datos de la orden:`, {
+      tracking: order.shipping_tracking_number,
+      company: order.shipping_company,
+      senderName: order.shipping_sender_name,
+      recipientName: order.shipping_recipient_name
+    });
+
+    // 2. Verificar que tiene boleta de envío
+    if (!order.shipping_receipt_url) {
+      return res.status(400).json({ 
+        message: "Esta orden no tiene boleta de envío registrada" 
+      });
+    }
+
+    console.log(`[SHIPPING RESEND] Reenviando email para orden #${id}...`);
+
+    // 3. Preparar datos de envío
+    const shippingData = {
+      trackingNumber: order.shipping_tracking_number,
+      company: order.shipping_company,
+      destination: order.shipping_destination || "N/A",
+      shippingDate: order.shipping_date,
+      senderName: order.shipping_sender_name,
+      senderDni: order.shipping_sender_dni,
+      senderPhone: order.shipping_sender_phone,
+      recipientName: order.shipping_recipient_name,
+      recipientDni: order.shipping_recipient_dni,
+      recipientPhone: order.shipping_recipient_phone
+    };
+
+    // 4. Reenviar correo con la boleta
+    const { sendShippingConfirmationEmail } = await import("../services/email.service.js");
+    await sendShippingConfirmationEmail(order, shippingData, order.shipping_receipt_url);
+
+    console.log(`[SHIPPING RESEND] ✅ Email reenviado exitosamente`);
+
+    res.json({
+      message: "Email de envío reenviado exitosamente",
+      sentTo: order.client_email
+    });
+
+  } catch (error) {
+    console.error("[SHIPPING RESEND] ❌ Error:", error);
+    res.status(500).json({ 
+      message: "Error al reenviar email de envío",
+      error: error.message 
+    });
   }
 };

@@ -155,7 +155,8 @@ export const uploadPaymentProof = async (req, res) => {
     );
 
     if (isPaymentValid) {
-      generateAndSendInvoice(order.order_id, clientId);
+      console.log(`[EMAIL] Iniciando proceso de factura para orden #${order.order_id}`);
+      await generateAndSendInvoice(order.order_id, clientId);
     }
 
     res.json({
@@ -484,14 +485,21 @@ const mapOrderStatusToTracking = (order, items) => {
 ============================================================ */
 const generateAndSendInvoice = async (orderId, clientId) => {
   try {
+    console.log(`[PDF] Obteniendo datos de la orden #${orderId}...`);
     const orderResult = await query(
-      `SELECT o.*, c.name as client_name, c.email as client_email, c.phone as client_phone
+      `SELECT o.*, c.name as client_name, c.email as client_email, c.phone as client_phone, c.address as client_address
        FROM orders o
        JOIN clients c ON o.client_id = c.client_id
        WHERE o.order_id = $1 AND o.client_id = $2`,
       [orderId, clientId]
     );
 
+    if (orderResult.rows.length === 0) {
+      console.error(`[PDF] Error: Orden #${orderId} no encontrada`);
+      return;
+    }
+
+    console.log(`[PDF] Obteniendo items de la orden #${orderId}...`);
     const itemsResult = await query(
       `SELECT oi.*, p.name as product_name
        FROM order_items oi
@@ -502,8 +510,12 @@ const generateAndSendInvoice = async (orderId, clientId) => {
 
     const orderData = orderResult.rows[0];
     orderData.items = itemsResult.rows;
+    
+    console.log(`[PDF] Cliente: ${orderData.client_name} (${orderData.client_email})`);
+    console.log(`[PDF] Generando PDF para orden #${orderId}...`);
 
     const pdfBuffer = await generateOrderPDFBuffer(orderData);
+    console.log(`[PDF] PDF generado exitosamente, tamaño: ${pdfBuffer.length} bytes`);
 
     const pdfFile = {
       buffer: pdfBuffer,
@@ -511,23 +523,31 @@ const generateAndSendInvoice = async (orderId, clientId) => {
       originalname: `factura_orden_${orderId}.pdf`,
     };
 
+    console.log(`[PDF] Subiendo PDF a Google Cloud Storage...`);
     const pdfUrl = await uploadToGCS(pdfFile, "invoices");
+    console.log(`[PDF] PDF subido exitosamente: ${pdfUrl}`);
 
     await query("UPDATE orders SET invoice_pdf_url = $1 WHERE order_id = $2", [
       pdfUrl,
       orderId,
     ]);
+    console.log(`[PDF] URL del PDF guardada en la base de datos`);
 
-    sendOrderConfirmationEmail(
+    console.log(`[EMAIL] Enviando correo de confirmación a: ${orderData.client_email}`);
+    await sendOrderConfirmationEmail(
       orderData.client_email,
       orderData.client_name,
       orderId,
       pdfUrl
     );
+    console.log(`[EMAIL] Correo de confirmación enviado exitosamente`);
 
+    console.log(`[WHATSAPP] Enviando notificación por WhatsApp...`);
     sendInvoiceNotification(clientId, orderId, pdfUrl);
+    console.log(`[WHATSAPP] Notificación enviada`);
 
   } catch (error) {
-    console.error(`[PDF]: Error en flujo de factura:`, error);
+    console.error(`[PDF] ❌ Error en flujo de factura para orden #${orderId}:`, error);
+    console.error(`[PDF] Stack trace:`, error.stack);
   }
 };
