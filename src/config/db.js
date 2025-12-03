@@ -32,7 +32,7 @@ pool.on("error", (err) => {
   console.error("🔥 Unexpected PG error", err);
   process.exit(-1);
 });
-
+//test
 // Función global para ejecutar queries
 export const query = (text, params) => pool.query(text, params);
 
