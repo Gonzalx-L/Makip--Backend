@@ -33,7 +33,11 @@ pool.on("error", (err) => {
   process.exit(-1);
 });
 //test
+//test2
 // Función global para ejecutar queries
+//
+//
+///
 export const query = (text, params) => pool.query(text, params);
 
 export default pool;
